@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* SmartEVM — "Slate & Steel" executive theme. All colors HSL. */
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --background: 215 30% 97%;
+    --foreground: 215 40% 14%;          /* deep navy ink */
+    --card: 0 0% 100%;
+    --card-foreground: 215 40% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 40% 14%;
+
+    /* Brand: #1A2B3C navy, #475569 slate, #3B82F6 electric blue accent */
+    --navy: 213 39% 17%;                /* #1A2B3C */
+    --slate: 215 19% 35%;               /* #475569 */
+    --primary: 217 91% 60%;             /* #3B82F6 */
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 217 95% 95%;
+
+    --secondary: 215 20% 94%;
+    --secondary-foreground: 215 40% 18%;
+
+    --muted: 215 25% 95%;
+    --muted-foreground: 215 14% 42%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Status (executive: emerald / amber / crimson) */
+    --success: 160 84% 30%;             /* #059669 */
+    --success-foreground: 0 0% 100%;
+    --warning: 32 95% 44%;              /* #D97706 */
+    --warning-foreground: 0 0% 100%;
+    --destructive: 0 74% 50%;           /* #DC2626 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 20% 88%;
+    --input: 215 20% 88%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+
+    --gradient-primary: linear-gradient(135deg, hsl(213 39% 17%), hsl(217 91% 45%));
+    --gradient-accent: linear-gradient(135deg, hsl(217 91% 60%), hsl(217 91% 45%));
+    --gradient-soft: linear-gradient(180deg, hsl(215 30% 99%), hsl(215 25% 95%));
+    --shadow-soft: 0 1px 2px hsl(215 30% 20% / 0.05), 0 4px 12px hsl(215 30% 20% / 0.06);
+    --shadow-elevated: 0 12px 32px hsl(213 50% 20% / 0.12);
+
+    /* Sidebar — deep navy */
+    --sidebar-background: 213 39% 14%;
+    --sidebar-foreground: 215 25% 88%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 213 35% 20%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 213 35% 22%;
+    --sidebar-ring: 217 91% 60%;
+  }
+
+  .dark {
+    --background: 213 39% 9%;
+    --foreground: 215 25% 92%;
+    --card: 213 39% 12%;
+    --card-foreground: 215 25% 92%;
+    --popover: 213 39% 12%;
+    --popover-foreground: 215 25% 92%;
+    --primary: 217 91% 62%;
+    --primary-foreground: 213 39% 9%;
+    --primary-soft: 217 50% 18%;
+    --secondary: 213 30% 18%;
+    --secondary-foreground: 215 25% 92%;
+    --muted: 213 30% 18%;
+    --muted-foreground: 215 15% 65%;
+    --accent: 217 91% 62%;
+    --accent-foreground: 0 0% 100%;
+    --border: 213 30% 22%;
+    --input: 213 30% 22%;
+    --ring: 217 91% 62%;
+    --sidebar-background: 213 45% 8%;
+    --sidebar-foreground: 215 25% 88%;
+    --sidebar-accent: 213 35% 16%;
+    --sidebar-border: 213 35% 18%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+  h1, h2, h3, h4 { @apply tracking-tight font-semibold; letter-spacing: -0.02em; }
+}
+
+@layer components {
+  .card-elevated {
+    @apply bg-card rounded-lg border border-border;
+    box-shadow: var(--shadow-soft);
+    transition: box-shadow .2s ease, transform .2s ease;
+  }
+  .card-elevated:hover { box-shadow: var(--shadow-elevated); }
+
+  .stat-gradient {
+    background: var(--gradient-primary);
+    color: hsl(var(--primary-foreground));
+  }
+
+  .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+}
