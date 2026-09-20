@@ -1,0 +1,29 @@
+"""Central config + paths. Everything else imports from here so the module is
+portable when your teammate drops `ai/` into the backend repo."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except Exception:  # dotenv is optional
+    pass
+
+AI_DIR = Path(__file__).resolve().parent
+DATA_DIR = AI_DIR / "data" / "generated"
+MODEL_DIR = AI_DIR / "models"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+# Generated dataset files
+SPRINTS_CSV = DATA_DIR / "sprints.csv"        # one row per (project, sprint)
+PROJECTS_CSV = DATA_DIR / "projects.csv"      # one row per project (final outcomes)
+
+# ---- LLM (Groq by default; OpenAI-compatible endpoint so it's swappable) ----
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")
+LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30"))

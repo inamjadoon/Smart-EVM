@@ -1,0 +1,30 @@
+# smartEVM AI module — dependencies
+# (your teammate's backend may already pin fastapi/pydantic; keep versions in sync)
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+joblib>=1.3
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.6
+python-dotenv>=1.0
+requests>=2.31
+
+# Data and machine learning
+numpy
+pandas
+scikit-learn
+lightgbm
+matplotlib
+
+# API
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# LLM
+openai
+
+# Notebooks and tests
+ipykernel
+pytest

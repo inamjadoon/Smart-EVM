@@ -1,0 +1,23 @@
+.env
+data/generated/
+models/*.joblib
+__pycache__/
+*.pyc
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# Secret keys (only .env.example gets committed)
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+
+# Editor and Windows files
+.vscode/
+Thumbs.db

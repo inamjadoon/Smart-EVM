@@ -1,0 +1,12 @@
+{
+  "project_id": "P0001",
+  "name": "Mobile App Revamp",
+  "history": [
+    {"sprint_number": 1, "total_sprints": 12, "bac": 240000, "planned_pct": 0.083, "actual_pct": 0.072, "ac": 20500, "code_coverage": 0.68, "bug_severity_score": 0.35, "tech_debt": 0.40},
+    {"sprint_number": 2, "total_sprints": 12, "bac": 240000, "planned_pct": 0.167, "actual_pct": 0.143, "ac": 41200, "code_coverage": 0.67, "bug_severity_score": 0.36, "tech_debt": 0.41},
+    {"sprint_number": 3, "total_sprints": 12, "bac": 240000, "planned_pct": 0.250, "actual_pct": 0.206, "ac": 63800, "code_coverage": 0.66, "bug_severity_score": 0.38, "tech_debt": 0.42},
+    {"sprint_number": 4, "total_sprints": 12, "bac": 240000, "planned_pct": 0.333, "actual_pct": 0.268, "ac": 88900, "code_coverage": 0.66, "bug_severity_score": 0.39, "tech_debt": 0.43},
+    {"sprint_number": 5, "total_sprints": 12, "bac": 240000, "planned_pct": 0.417, "actual_pct": 0.324, "ac": 116400, "code_coverage": 0.65, "bug_severity_score": 0.41, "tech_debt": 0.44},
+    {"sprint_number": 6, "total_sprints": 12, "bac": 240000, "planned_pct": 0.500, "actual_pct": 0.378, "ac": 146200, "code_coverage": 0.64, "bug_severity_score": 0.42, "tech_debt": 0.45}
+  ]
+}
