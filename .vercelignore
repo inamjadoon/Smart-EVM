@@ -1,0 +1,17 @@
+# Files NOT uploaded to the Vercel API project (keeps the Python function small).
+# The frontend is deployed as its own Vercel project with Root Directory = frontend.
+venv/
+.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/
+frontend/
+ML/
+ai/training/
+ai/models/
+ai/data/generated/
+ai/demo.py
+backend/test_*.py
+backend/crud_smoke_manual.py
+backend/eval_genai.py
+**/.env

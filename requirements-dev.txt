@@ -1,0 +1,7 @@
+# Development / test dependencies (not installed on the server).
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+
+matplotlib>=3.7.0   # charts in the offline ML scripts (ML/, ai/training)
+pytest>=7.4.0
+httpx2              # required by fastapi.testclient

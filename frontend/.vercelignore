@@ -1,0 +1,4 @@
+# Frontend Vercel project. Its own file so the repo-root .vercelignore (which drops frontend/ from the API) is not used here.
+node_modules/
+dist/
+.env

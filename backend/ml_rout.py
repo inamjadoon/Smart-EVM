@@ -29,7 +29,10 @@ router = APIRouter(prefix="/ml", tags=["ML Predictions"])
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "ml_data")
 
-os.makedirs(DATA_DIR, exist_ok=True)
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError:  # read-only filesystem (serverless); the tracked ml_data/*.csv files are used as-is
+    pass
 
 _MODELS: dict = {}
 

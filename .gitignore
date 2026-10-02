@@ -14,8 +14,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Python packaging dirs at the repo root only (a bare `lib/` also hid frontend/src/lib)
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -91,3 +92,6 @@ backend/.env
 # Env templates (placeholders only, no secrets) ARE committed so teammates can copy them
 !.env.example
 !**/.env.example
+
+# Vercel CLI local state
+.vercel/

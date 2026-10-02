@@ -102,8 +102,9 @@ Your prompt now starts with `(venv)`. **Always activate before installing or run
 ### 3.3 Install the Python packages (once, and again whenever `requirements.txt` changes)
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
+(`requirements-dev.txt` = the app's `requirements.txt` + test tools. The server only needs `requirements.txt`.)
 
 ### 3.4 Run the backend
 ```bash
@@ -222,6 +223,8 @@ table and shown to Admins on the Users & Access page.
 Run all backend tests with: `cd backend && python -m pytest -q`
 
 ## Deploying to Production (checklist)
+
+Step-by-step free hosting guide (Vercel + Neon + Groq, no card): see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 - [ ] Strong unique `JWT_SECRET` and a new `ADMIN_PASSWORD` set on the server (never commit `.env`).
 - [ ] Serve the API and frontend over **HTTPS** only; set `CORS_ORIGINS` to your frontend URL.

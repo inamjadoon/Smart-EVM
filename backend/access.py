@@ -16,6 +16,7 @@ writes you aren't allowed to make answer 403.
 from __future__ import annotations
 
 import json
+import os
 import logging
 import threading
 import time
@@ -233,6 +234,7 @@ def ensure_audit_schema() -> None:
 
 # Writes happen off the request thread so auditing never slows a user action down.
 _audit_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="audit")
+_SERVERLESS = bool(os.getenv("VERCEL"))
 
 
 def _write_audit(row: tuple) -> None:
@@ -256,7 +258,10 @@ def audit(user: Optional[Dict[str, Any]], action: str, entity: Optional[str] = N
     actor = (user or {}).get("email") or (user or {}).get("username")
     row = ((user or {}).get("user_id"), actor, action, entity, entity_id,
            json.dumps(details, default=str)[:2000] if details else None)
-    _audit_pool.submit(_write_audit, row)
+    if _SERVERLESS:
+        _write_audit(row)          # serverless functions freeze after the response, so write now
+    else:
+        _audit_pool.submit(_write_audit, row)
 
 
 def recent_activity(limit: int = 100, user_id: Optional[int] = None) -> List[Dict[str, Any]]:

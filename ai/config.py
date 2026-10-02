@@ -17,8 +17,11 @@ except Exception:  # dotenv is optional
 AI_DIR = Path(__file__).resolve().parent
 DATA_DIR = AI_DIR / "data" / "generated"
 MODEL_DIR = AI_DIR / "models"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
+for _d in (DATA_DIR, MODEL_DIR):
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except OSError:  # read-only filesystem (e.g. serverless hosting) — only training scripts write here
+        pass
 
 # Generated dataset files
 SPRINTS_CSV = DATA_DIR / "sprints.csv"        # one row per (project, sprint)

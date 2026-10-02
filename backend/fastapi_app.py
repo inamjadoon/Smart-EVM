@@ -44,10 +44,13 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 @asynccontextmanager
 async def lifespan(_app):
     # Additive auth migration + bootstrap admin + warm DB pool, before serving traffic.
-    ensure_auth_schema()
-    ensure_audit_schema()
-    ensure_evm_schema()
-    ensure_bootstrap_admin()
+    # SKIP_STARTUP_MIGRATIONS=1 skips the (idempotent) schema checks to shorten serverless cold starts
+    # once the database is already migrated.
+    if os.getenv("SKIP_STARTUP_MIGRATIONS", "").lower() not in ("1", "true", "yes"):
+        ensure_auth_schema()
+        ensure_audit_schema()
+        ensure_evm_schema()
+        ensure_bootstrap_admin()
     warm_pool()
     yield
 
