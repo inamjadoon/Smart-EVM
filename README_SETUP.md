@@ -1,105 +1,180 @@
 # SmartEVM — Team Setup & Quickstart Guide
 
-This guide contains everything your team needs to run SmartEVM locally on their machines.
+Everything a teammate needs to run SmartEVM on their own machine after cloning the repo.
+
+> **Secrets are NOT on GitHub.** The real `.env` files are git-ignored. The repo only contains
+> `.env.example` templates. The project owner sends the secret values to you **privately**
+> (WhatsApp / Slack DM / password manager — never in a GitHub issue, commit, or public chat).
 
 ---
 
-## ⚠️ Important Note Before Zipping the Project
+## 0. Prerequisites (install once)
 
-When creating a `.zip` to share with teammates, **DO NOT include**:
-- `venv/` or `.venv/` (Python virtual environments are machine-specific)
-- `node_modules/` in `frontend/` (hundreds of MBs and platform-dependent binaries)
-- `dist/` in `frontend/`
-- `.git/` (if present)
-
-Teammates will generate their own `venv` and `node_modules` in 2 simple commands as shown below.
-
----
-
-## Prerequisites
-
-1. **Python 3.10+** installed ([python.org](https://www.python.org/downloads/))
-2. **Node.js 18+** & npm installed ([nodejs.org](https://nodejs.org/))
-3. **Internet connection** (to install packages & access cloud database)
+| Tool | Version | Check with |
+|---|---|---|
+| Git | any recent | `git --version` |
+| Python | **3.10 – 3.12** | `python --version` |
+| Node.js | **18 or newer** (includes npm) | `node --version` |
+| Internet access | — | needed for the Neon cloud database and the Groq AI API |
 
 ---
 
-## Step 1: Backend Setup (FastAPI + ML + AI)
+## 1. Clone the repository
 
-Open a terminal in the root folder (`smartEVM-main/`):
+```bash
+git clone https://github.com/Tusharlalwani1/smartEVM.git
+cd smartEVM
+```
 
-### 1. Create and Activate Virtual Environment
+All commands below are run from this project root folder unless a step says `cd` somewhere.
+
+---
+
+## 2. Create the environment files (`.env`)
+
+You need **two** `.env` files. Copy each template, then fill in the values.
+
+| File to create | Copy from | Required? |
+|---|---|---|
+| `backend/.env` | `backend/.env.example` | **Yes** |
+| `frontend/.env` | `frontend/.env.example` | **Yes** |
+| `ai/.env` | `ai/.env.example` | No — the app reads AI settings from `backend/.env` |
+
 **Windows (PowerShell):**
 ```powershell
+copy backend\.env.example backend\.env
+copy frontend\.env.example frontend\.env
+```
+**macOS / Linux:**
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+```
+
+### `backend/.env` — what to put in it
+
+| Variable | Value | Where it comes from |
+|---|---|---|
+| `DATABASE_URL` | Neon PostgreSQL connection string | **Sent privately by the project owner** |
+| `GROQ_API_KEY` | Groq API key for the AI assistant | **Sent privately by the owner**, or create your own free key at console.groq.com/keys |
+| `LLM_MODEL`, `LLM_ROUTER_MODEL`, `LLM_FALLBACK_MODELS` | keep the template defaults | template |
+| `JWT_SECRET` | any long random string — **generate your own** | run `python -c "import secrets; print(secrets.token_urlsafe(48))"` and paste the output |
+| `JWT_EXPIRE_MINUTES` | `480` | template |
+| `ADMIN_EMAIL` | `admin@smartevm.com` | template |
+| `ADMIN_PASSWORD` | **leave empty** | the shared database already has the admin account |
+| `ADMIN_NAME`, `ALLOW_SIGNUP`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | keep the template defaults | template |
+
+### `frontend/.env` — what to put in it
+
+```
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+(Already set in the template — just copy it.)
+
+> ⚠️ Everyone's local app talks to the **same shared Neon database**. Data you create, edit or delete
+> is real for the whole team — use clearly named test projects and clean up after yourself.
+
+---
+
+## 3. Backend setup (FastAPI + ML + AI)
+
+### 3.1 Create the virtual environment (once), in the project root
+```bash
 python -m venv venv
+```
+
+### 3.2 Activate it (every time you open a new terminal)
+
+**Windows (PowerShell):**
+```powershell
 .\venv\Scripts\Activate.ps1
 ```
-*(If PowerShell shows an execution policy error, run: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`)*
+*(If you get an "execution policy" error, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first.)*
+
+**Windows (Command Prompt):** `venv\Scripts\activate.bat`
 
 **macOS / Linux:**
 ```bash
-python3 -m venv venv
 source venv/bin/activate
 ```
+Your prompt now starts with `(venv)`. **Always activate before installing or running.**
 
-### 2. Install All Python Requirements
+### 3.3 Install the Python packages (once, and again whenever `requirements.txt` changes)
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. Environment Variables
-Make sure `backend/.env` exists. If not, copy from `backend/.env.example`:
-```powershell
-# Windows
-copy backend\.env.example backend\.env
-
-# macOS / Linux
-cp backend/.env.example backend/.env
-```
-
-Then set the **authentication** values in `backend/.env`:
-
-| Variable | Purpose |
-|---|---|
-| `JWT_SECRET` | Signs login tokens. Use a long random value: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Changing it signs everyone out. |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | The bootstrap **Admin** account, created (or re-activated) on every server start. Change the password from the **Account** page after the first sign-in. |
-| `JWT_EXPIRE_MINUTES` | Session length (default 480 = 8 hours). |
-| `ALLOW_SIGNUP` | `true` lets anyone register (as Developer). `false` = only admins create accounts. |
-| `CORS_ORIGINS` | Production only: comma-separated frontend URLs, e.g. `https://app.example.com`. |
-| `DB_POOL_SIZE` | Warm DB connections kept open (default 10). Use `0` on serverless hosts. |
-
-### 4. Run the Backend Server
+### 3.4 Run the backend
 ```bash
 cd backend
 uvicorn fastapi_app:app --reload --port 8000
 ```
-- API Docs (Swagger): **http://127.0.0.1:8000/docs**
-- Backend Health Check: **http://127.0.0.1:8000/**
+Wait for `Application startup complete.` (the first start can take ~30 s while it connects to the
+database and loads the ML libraries). Then check:
+- Health: **http://127.0.0.1:8000/health** → `{"status":"ok"}`
+- API docs (Swagger): **http://127.0.0.1:8000/docs** — click **Authorize** and paste a login token to try protected endpoints
+
+Leave this terminal running.
 
 ---
 
-## Step 2: Frontend Setup (React + Vite + Tailwind)
+## 4. Frontend setup (React + Vite)
 
-Open a **second terminal** and navigate to the `frontend/` directory:
-
+Open a **second terminal** in the project root:
 ```bash
 cd frontend
-npm install
+npm install        # once, and again whenever package.json changes
 npm run dev
 ```
-
-The frontend app will launch at:
-- **http://localhost:8080** (or `http://localhost:5173` depending on port availability)
+Open **http://localhost:8080** in your browser.
 
 ---
 
-## Step 3: Verify the System
+## 5. Sign in and check it works
 
-1. Open **http://localhost:8080** in your browser.
-2. Go to **Dashboard** / **EVM Dashboard** — select any project to view EVM stats.
-3. Go to **Tasks** — you can add/edit tasks with user dropdowns and sprint filtering.
-4. Go to **Intelligence** — view predictive EAC, anomaly detection, and Monte Carlo simulation.
+1. Go to **http://localhost:8080** → **Create an account**. New accounts start as **Developer**.
+2. Ask the admin to give you the right role (**Manager** / **Admin**) and, for developers, to put you on a
+   manager's **Team** (Users & Access page).
+3. Sign out and back in (or refresh) to see the pages for your role.
+4. Open the **AI Assistant** (bottom-right) and ask "Give me a summary of my projects".
+
+### Daily routine (after the first setup)
+```bash
+# terminal 1 — backend
+.\venv\Scripts\Activate.ps1          # macOS/Linux: source venv/bin/activate
+cd backend
+uvicorn fastapi_app:app --reload --port 8000
+
+# terminal 2 — frontend
+cd frontend
+npm run dev
+```
+After `git pull`, re-run `pip install -r requirements.txt` (with the venv active) and `npm install`
+if those files changed.
+
+---
+
+## 6. Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `uvicorn: command not found` / `No module named fastapi` | The venv isn't active — activate it (step 3.2), then `pip install -r requirements.txt`. |
+| Backend log: `Connection has failed` / pages stuck loading | `DATABASE_URL` in `backend/.env` is wrong or missing, or you're offline. |
+| Login page says "Cannot reach the SmartEVM server" | The backend isn't running on port 8000, or `frontend/.env` has the wrong `VITE_API_BASE_URL`. Restart `npm run dev` after editing `.env`. |
+| Everyone gets signed out after a restart | `JWT_SECRET` is missing/short in `backend/.env`, so a random one is generated each start. |
+| AI chat shows "AI model offline" | `GROQ_API_KEY` is missing or invalid — the banner says why. The built-in analyst still answers from live data. |
+| `Port 8000 / 8080 already in use` | Another copy is already running — stop it, or use `--port 8001` (and update `VITE_API_BASE_URL`). |
+| CORS error in the browser console | Open the app at `http://localhost:8080` (not another port), or add your URL to `CORS_ORIGINS`. |
+
+Run the backend tests any time: `cd backend` then `python -m pytest -q` (venv active).
+
+---
+
+## ⚠️ Before sharing the project as a .zip
+
+Do **not** include `venv/`, `frontend/node_modules/`, `frontend/dist/`, `.git/`, or any real `.env` file.
+Teammates recreate `venv` and `node_modules` with the commands above.
 
 ---
 
@@ -152,8 +227,25 @@ Run all backend tests with: `cd backend && python -m pytest -q`
 - [ ] Serve the API and frontend over **HTTPS** only; set `CORS_ORIGINS` to your frontend URL.
 - [ ] Set `VITE_API_BASE_URL` to the public API URL, then `npm run build` and host `frontend/dist`.
 - [ ] Run the API with several workers, e.g. `uvicorn fastapi_app:app --host 0.0.0.0 --port 8000 --workers 4`.
+- [ ] Point the platform's health check at `GET /health/ready` (checks the database) and uptime pings at `GET /health`.
 - [ ] Put the Neon database in the region closest to your users/server — every query pays the network round trip.
-- [ ] Rotate any database/API keys that were ever shared in zip files or chat.
+- [ ] Rotate any database/API keys that were ever committed, zipped, or pasted in chat (the Neon password was committed in early history — reset it in the Neon console).
+
+## How EVM is calculated
+
+All values are in the project's currency, recalculated live from sprints and tasks:
+
+| Metric | Meaning in SmartEVM |
+|---|---|
+| **BAC** | Project budget (falls back to the sum of sprint budgets) |
+| **PV** | Budget planned to be done **by today** — each sprint's budget spread over its start→end dates |
+| **EV** | Budget value of work done — each task is worth its share of its sprint's budget by story points; Done = 100 %, In Progress = 50 %, To Do = 0 % |
+| **AC** | Money actually spent — **entered by the manager per sprint** (Sprints page → *Actual Cost to date*) |
+| **CPI / EAC / VAC** | EV ÷ AC, BAC ÷ CPI, BAC − EAC — shown as "—" until actual cost is entered (never guessed) |
+| **SPI** | EV ÷ PV |
+
+*Save snapshot* (EVM Dashboard) records the current figures in `EVM_History`; the chart, ML forecasts and AI use those.
+Snapshots taken before this formula (marked `calc_version = 1`) are kept in the database but ignored.
 
 ## AI Assistant (multi-agent)
 

@@ -111,3 +111,15 @@
 
   .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 }
+
+
+/* Scrollable without a visible scrollbar (used by the sidebar menu) */
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -49,7 +49,7 @@ export default function ProjectLedger() {
       JSON.stringify(r.task_description), r.sprint_name, r.status, r.story_points,
       r.planned_value, r.earned_value, r.actual_cost,
       sv(r.earned_value, r.planned_value), cv(r.earned_value, r.actual_cost),
-      spi(r.earned_value, r.planned_value).toFixed(3), cpi(r.earned_value, r.actual_cost).toFixed(3),
+      spi(r.earned_value, r.planned_value)?.toFixed(3) ?? "", cpi(r.earned_value, r.actual_cost)?.toFixed(3) ?? "",
     ].join(","));
     const csv = [headers.join(","), ...lines].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -61,7 +61,9 @@ export default function ProjectLedger() {
 
   const totals = useMemo(() => {
     const t = filtered.reduce((a, r) => ({ pv: a.pv + (r.planned_value || 0), ev: a.ev + (r.earned_value || 0), ac: a.ac + (r.actual_cost || 0) }), { pv: 0, ev: 0, ac: 0 });
-    return { ...t, sv: sv(t.ev, t.pv), cv: cv(t.ev, t.pv), spi: spi(t.ev, t.pv), cpi: cpi(t.ev, t.ac) };
+    const hasAc = filtered.some((r) => r.actual_cost != null);
+    const ac = hasAc ? t.ac : null;          // no actual cost entered -> unknown, not $0
+    return { ...t, ac, sv: sv(t.ev, t.pv), cv: cv(t.ev, ac), spi: spi(t.ev, t.pv), cpi: cpi(t.ev, ac) };
   }, [filtered]);
 
   return (
@@ -146,8 +148,8 @@ export default function ProjectLedger() {
                       <TableCell className="text-right num-mono">{fmtUsd(r.planned_value)}</TableCell>
                       <TableCell className="text-right num-mono text-primary font-semibold">{fmtUsd(r.earned_value)}</TableCell>
                       <TableCell className="text-right num-mono">{fmtUsd(r.actual_cost)}</TableCell>
-                      <TableCell className={cn("text-right num-mono", _sv >= 0 ? "text-success" : "text-destructive")}>{fmtUsd(_sv)}</TableCell>
-                      <TableCell className={cn("text-right num-mono", _cv >= 0 ? "text-success" : "text-destructive")}>{fmtUsd(_cv)}</TableCell>
+                      <TableCell className={cn("text-right num-mono", _sv == null ? "" : _sv >= 0 ? "text-success" : "text-destructive")}>{fmtUsd(_sv)}</TableCell>
+                      <TableCell className={cn("text-right num-mono", _cv == null ? "text-muted-foreground" : _cv >= 0 ? "text-success" : "text-destructive")}>{fmtUsd(_cv)}</TableCell>
                       <TableCell className={cn("text-right num-mono font-semibold", idxTone(_spi))}>{fmtIdx(_spi)}</TableCell>
                       <TableCell className={cn("text-right num-mono font-semibold", idxTone(_cpi))}>{fmtIdx(_cpi)}</TableCell>
                     </TableRow>

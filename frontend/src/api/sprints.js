@@ -23,6 +23,7 @@ const toApi = (payload) => {
     start_date,
     end_date,
     planned_value,
+    actual_cost,
   } = payload || {};
   return {
     project_id: Number(project_id),
@@ -34,6 +35,9 @@ const toApi = (payload) => {
       planned_value === "" || planned_value == null
         ? null
         : Number(planned_value),
+    // Money actually spent on the sprint so far; empty = not entered yet (CPI stays unknown)
+    actual_cost:
+      actual_cost === "" || actual_cost == null ? null : Number(actual_cost),
   };
 };
 

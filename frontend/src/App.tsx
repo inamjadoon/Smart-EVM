@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -7,25 +8,34 @@ import AppLayout from "./layouts/AppLayout";
 import LandingPage from "./pages/LandingPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
-import Projects from "./pages/Projects";
-import Sprints from "./pages/Sprints";
-import Tasks from "./pages/Tasks";
-import EVMDashboard from "./pages/EVMDashboard";
-import MLPredictions from "./pages/MLPredictions";
-import Intelligence from "./pages/Intelligence";
-import ProjectLedger from "./pages/ProjectLedger";
-import Team from "./pages/Team";
-import Account from "./pages/Account";
+import { Loader2 } from "lucide-react";
 import { AuthProvider } from "./auth/AuthProvider";
 import { GuestOnly, RequireAuth, RequireRole } from "./auth/ProtectedRoute";
 import NotFound from "./pages/NotFound.tsx";
+
+// Workspace pages load on demand, so the landing and sign-in pages stay small and fast.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Projects = lazy(() => import("./pages/Projects"));
+const Sprints = lazy(() => import("./pages/Sprints"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const EVMDashboard = lazy(() => import("./pages/EVMDashboard"));
+const MLPredictions = lazy(() => import("./pages/MLPredictions"));
+const Intelligence = lazy(() => import("./pages/Intelligence"));
+const ProjectLedger = lazy(() => import("./pages/ProjectLedger"));
+const Team = lazy(() => import("./pages/Team"));
+const Account = lazy(() => import("./pages/Account"));
+
+const PageLoading = () => (
+  <div className="flex items-center justify-center py-24 text-sm text-muted-foreground gap-2">
+    <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+  </div>
+);
 
 const queryClient = new QueryClient();
 
 // Every workspace page: must be signed in AND have a role allowed for that path.
 const guarded = (path: string, element: JSX.Element) => (
-  <Route path={path} element={<RequireRole path={path}>{element}</RequireRole>} />
+  <Route path={path} element={<RequireRole path={path}><Suspense fallback={<PageLoading />}>{element}</Suspense></RequireRole>} />
 );
 
 const App = () => (

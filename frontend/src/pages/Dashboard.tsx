@@ -6,18 +6,20 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FolderKanban, CalendarRange, ListChecks, TrendingUp, ArrowRight, Sparkles } from "lucide-react";
 import { getProjects } from "@/api/projects";
-import { getEvmSummary } from "@/api/evm";
+import { getEvmPortfolio } from "@/api/evm";
 import { InsightsAgentCard } from "@/components/InsightsAgentCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { RoleGate } from "@/auth/AuthProvider";
 
-const healthStyle = (h: string) =>
-  h === "Green"
+// Backend health looks like "Green - On track", so match on the colour prefix.
+const healthStyle = (h?: string) =>
+  h?.startsWith("Green")
     ? "bg-success/10 text-success border-success/20"
-    : h === "Yellow"
-    ? "bg-warning/15 text-warning-foreground border-warning/30"
-    : h === "Red"
+    : h?.startsWith("Yellow")
+    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+    : h?.startsWith("Red")
     ? "bg-destructive/10 text-destructive border-destructive/20"
     : "bg-muted text-muted-foreground";
 
@@ -60,28 +62,14 @@ export default function Dashboard() {
         if (list && list.length > 0) {
           setSelectedProjectId(String(list[0].id));
         }
-        // The /projects endpoint does NOT include EVM fields (cpi/spi/health/
-        // sprint_count/task_count). Fetch per-project EVM summary in parallel
-        // (read-only — does not save snapshots) so the table cells render.
-        const enriched = await Promise.all(
-          list.map(async (p: any) => {
-            try {
-              const e = await getEvmSummary(p.id);
-              return {
-                ...p,
-                cpi: e.cpi,
-                spi: e.spi,
-                qpi: e.qpi,
-                health: e.health,
-                sprint_count: e.sprint_count,
-                task_count: e.task_count,
-              };
-            } catch {
-              return p;
-            }
-          })
-        );
-        setProjects(enriched);
+        // One request for live EVM of every visible project (read-only — no snapshots saved).
+        const evm = await getEvmPortfolio().catch(() => []);
+        const byId = new Map(evm.map((e: any) => [e.project_id, e]));
+        setProjects(list.map((p: any) => {
+          const e: any = byId.get(p.id);
+          return e ? { ...p, cpi: e.cpi, spi: e.spi, qpi: e.qpi, health: e.health,
+                       sprint_count: e.sprint_count, task_count: e.task_count } : p;
+        }));
       })
       .catch((e) => toast.error("Failed to load projects: " + e.message))
       .finally(() => setLoading(false));
@@ -89,7 +77,7 @@ export default function Dashboard() {
 
   const totalSprints = projects.reduce((s, p) => s + (p.sprint_count ?? 0), 0);
   const totalTasks = projects.reduce((s, p) => s + (p.task_count ?? 0), 0);
-  const healthyCount = projects.filter((p) => p.health === "Green").length;
+  const healthyCount = projects.filter((p) => p.health?.startsWith("Green")).length;
 
   return (
     <div className="space-y-8">
@@ -98,9 +86,11 @@ export default function Dashboard() {
           <h2 className="text-3xl font-bold tracking-tight">Welcome back 👋</h2>
           <p className="text-muted-foreground mt-1">Here's the latest on your portfolio.</p>
         </div>
-        <Button onClick={() => navigate("/projects")} className="bg-gradient-primary hover:opacity-90 shadow-soft">
-          New Project <ArrowRight className="ml-2 h-4 w-4" />
-        </Button>
+        <RoleGate allow={["Admin", "Manager"]}>
+          <Button onClick={() => navigate("/projects")} className="bg-gradient-primary hover:opacity-90 shadow-soft">
+            New Project <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </RoleGate>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

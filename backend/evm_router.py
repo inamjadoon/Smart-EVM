@@ -44,9 +44,12 @@ class SprintSummary(BaseModel):
     sprint_id     : int
     sprint_no     : int
     sprint_name   : Optional[str]
-    planned_value : float
+    planned_value : float                 # sprint budget
+    pv_to_date    : Optional[float] = None
     earned_value  : float
-    spi           : float
+    actual_cost   : Optional[float] = None
+    spi           : Optional[float]
+    cpi           : Optional[float] = None
     total_tasks   : int
     done_tasks    : int
     total_points  : int
@@ -59,12 +62,18 @@ class EVMResponse(BaseModel):
     total_budget              : float
     total_pv                  : float
     total_ev                  : float
-    total_ac                  : float
-    cpi                       : float
-    spi                       : float
+    total_ac                  : Optional[float]   # None until a manager enters actual cost
+    cpi                       : Optional[float]
+    spi                       : Optional[float]
     qpi                       : Optional[float]
-    ai_prediction_eac         : float
-    ai_variance_at_completion : float
+    ai_prediction_eac         : Optional[float]
+    ai_variance_at_completion : Optional[float]
+    etc                       : Optional[float] = None
+    percent_complete          : Optional[float] = None
+    ac_entered                : bool = False
+    ac_sprints_entered        : int = 0
+    schedule_known            : bool = False
+    snapshot_skipped_reason   : Optional[str] = None
     done_story_points         : int
     budget_per_point          : float
     sprint_count              : int

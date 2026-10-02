@@ -53,7 +53,7 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="scrollbar-none">
         <SidebarGroup>
           {!collapsed && (
             <div className="flex items-center justify-between px-3 py-1">

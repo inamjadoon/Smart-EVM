@@ -17,7 +17,7 @@ def _parse_date(d):
     raise ValueError(f"Cannot parse date: '{d}'. Use YYYY-MM-DD e.g. '2025-01-01'")
 
 
-def create_sprint(project_id, sprint_no, name, start_date, end_date, planned_value):
+def create_sprint(project_id, sprint_no, name, start_date, end_date, planned_value, actual_cost=None):
     """Insert sprint and return the new sprint_id."""
     conn = get_connection()
     if not conn:
@@ -26,12 +26,12 @@ def create_sprint(project_id, sprint_no, name, start_date, end_date, planned_val
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO Sprints
-                (project_id, sprint_no, sprint_name, start_date, end_date, planned_value)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (project_id, sprint_no, sprint_name, start_date, end_date, planned_value, actual_cost)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING sprint_id
         """, [project_id, sprint_no, name,
               _parse_date(start_date), _parse_date(end_date),
-              planned_value])
+              planned_value, actual_cost])
         row = cursor.fetchone()
         conn.commit()
         return int(row[0]) if row else None
@@ -69,7 +69,7 @@ def get_sprints(project_id=None):
         conn.close()
 
 
-def update_sprint(sprint_id, project_id, sprint_no, name, start_date, end_date, planned_value):
+def update_sprint(sprint_id, project_id, sprint_no, name, start_date, end_date, planned_value, actual_cost=None):
     conn = get_connection()
     if not conn:
         return False
@@ -78,11 +78,11 @@ def update_sprint(sprint_id, project_id, sprint_no, name, start_date, end_date, 
         cursor.execute("""
             UPDATE Sprints
             SET project_id=%s, sprint_no=%s, sprint_name=%s,
-                start_date=%s, end_date=%s, planned_value=%s
+                start_date=%s, end_date=%s, planned_value=%s, actual_cost=%s
             WHERE sprint_id=%s
         """, [project_id, sprint_no, name,
               _parse_date(start_date), _parse_date(end_date),
-              planned_value, sprint_id])
+              planned_value, actual_cost, sprint_id])
         conn.commit()
         return True
     except Exception as e:

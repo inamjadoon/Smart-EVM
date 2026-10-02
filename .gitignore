@@ -87,3 +87,7 @@ backend/.env
 
 # Vite temp files
 *.timestamp-*.mjs
+
+# Env templates (placeholders only, no secrets) ARE committed so teammates can copy them
+!.env.example
+!**/.env.example

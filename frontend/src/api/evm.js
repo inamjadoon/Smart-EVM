@@ -77,6 +77,10 @@ export const getEvmSummary = (projectId, budgetPerPoint = 100) =>
     })
     .then((r) => adaptEvmResult(r.data));
 
+/** GET /evm/portfolio — live EVM for every project the user can see, in one request. */
+export const getEvmPortfolio = () =>
+  api.get("/evm/portfolio").then((r) => (r.data || []).map(adaptEvmResult));
+
 export const getEvmHistory = (projectId) =>
   api
     .get(`/evm/history/${projectId}`)

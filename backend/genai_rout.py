@@ -154,11 +154,20 @@ class ChatTurn(BaseModel):
     content: str = Field(..., max_length=4000)
 
 
+class PageContext(BaseModel):
+    """What the user is looking at when they ask (lets the assistant 'read this page')."""
+    path      : str           = Field(default="", max_length=300)
+    title     : str           = Field(default="", max_length=200)
+    text      : str           = Field(default="", max_length=20000)   # visible text of the page, trimmed server-side
+    project_id: Optional[int] = None
+
+
 class ChatIn(BaseModel):
     message   : str = Field(..., min_length=1, max_length=2000)
     project_id: Optional[int] = None          # omit for a portfolio-wide question
     history   : List[ChatTurn] = Field(default_factory=list, max_length=20)  # earlier turns, oldest first
     agents    : Optional[List[str]] = None    # force specific specialists (testing / UI shortcuts)
+    page      : Optional[PageContext] = None  # current page snapshot (optional)
 
 
 @router.post("/chat", summary="Multi-agent assistant: routes the question to specialist agents")
@@ -176,6 +185,7 @@ def genai_chat(body: ChatIn, user: Dict[str, Any] = Depends(get_current_user)):
         project_id=body.project_id,
         history=[t.model_dump() for t in body.history],
         force_agents=body.agents,
+        page=body.page.model_dump() if body.page else None,
     )
 
 

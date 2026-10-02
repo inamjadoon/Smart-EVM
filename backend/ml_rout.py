@@ -103,7 +103,7 @@ def _fetch_project_and_history(project_id: int) -> tuple[Optional[Dict[str, Any]
 
             FROM EVM_History
 
-            WHERE project_id = %s
+            WHERE project_id = %s AND calc_version >= 2
 
             ORDER BY snapshot_date ASC, history_id ASC
 
@@ -207,15 +207,15 @@ class GraphPoint(BaseModel):
 
     predicted_spi: float
 
-    predicted_eac: float
+    predicted_eac: Optional[float]
 
     predicted_delay_days: float
 
-    expected_cost: float
+    expected_cost: Optional[float]
 
     x: str
 
-    y: float
+    y: Optional[float]
 
 class HistoricalPoint(BaseModel):
 
@@ -241,15 +241,17 @@ class EVMPredictionResponse(BaseModel):
 
     total_budget: float
 
-    current_cpi: float
+    current_cpi: Optional[float]          # None when no actual cost has been entered
 
     current_spi: float
 
-    predicted_eac: float
+    predicted_eac: Optional[float]        # None when cost performance is unknown
 
     predicted_delay_days: float
 
     status_warning: str
+
+    cost_data_available: bool = True
 
     graph_data: List[GraphPoint]
 
@@ -347,6 +349,8 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
             latest = valid_snapshots[-1]
 
+            cpi_known = latest["cpi"] is not None
+
             current_cpi = float(latest["cpi"] or 1.0)
 
             current_spi = float(latest["spi"] or 1.0)
@@ -360,6 +364,10 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
         else:
 
             live = _get_live_evm_fallback(project_id)
+
+            cpi_known = live.get("cpi") is not None
+
+            spi_known = live.get("spi") is not None
 
             current_cpi = float(live.get("cpi") or 1.0)
 
@@ -523,6 +531,13 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
         predicted_delay_days = terminal["predicted_delay_days"]
 
+    cpi_known = locals().get("cpi_known", True)    # >= 2 valid snapshots always carry a real CPI
+    if not cpi_known:
+        # No actual cost entered: judge on schedule only, and don't present an assumed EAC as a forecast.
+        current_cpi = 1.0
+        predicted_eac = None
+        for point in graph_data:
+            point["predicted_eac"] = point["expected_cost"] = point["y"] = None
     if current_cpi < 0.80 or current_spi < 0.80 or predicted_delay_days > 30.0:
 
         status_warning = "Critical Delay"
@@ -535,6 +550,9 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
         status_warning = "On Track"
 
+    if not cpi_known and not locals().get("spi_known", True):
+        status_warning = "Insufficient data"     # no schedule or cost information to judge yet
+
     return {
 
         "project_id": project_id,
@@ -543,7 +561,7 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
         "total_budget": budget,
 
-        "current_cpi": round(current_cpi, 2),
+        "current_cpi": round(current_cpi, 2) if cpi_known else None,
 
         "current_spi": round(current_spi, 2),
 
@@ -552,6 +570,8 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
         "predicted_delay_days": predicted_delay_days,
 
         "status_warning": status_warning,
+
+        "cost_data_available": cpi_known,
 
         "graph_data": graph_data,
 
@@ -569,7 +589,7 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
             "Notice: Insufficient historical snapshots (<2). Generated prediction using deterministic EVM fallback."
 
-        ),
+        ) + ("" if cpi_known else " Cost forecast unavailable: no actual cost has been entered for this project's sprints."),
 
     }
 
@@ -579,7 +599,7 @@ def compute_evm_forecast(project_id: int) -> Dict[str, Any]:
 
     response_model=EVMPredictionResponse,
 
-    summary="Predict Project Cost Overrun \& Schedule Delay",
+    summary="Predict Project Cost Overrun & Schedule Delay",
 
     description=(
 
@@ -603,7 +623,7 @@ def api_predict_project_evm_path(project_id: int):
 
     response_model=EVMPredictionResponse,
 
-    summary="Predict Project Cost Overrun \& Schedule Delay (POST)",
+    summary="Predict Project Cost Overrun & Schedule Delay (POST)",
 
 )
 
@@ -631,7 +651,7 @@ def get_risk_index(project_id: int = Query(..., description="Project ID")):
 
     """
 
-    Evaluates project risk based on historical CPI \& SPI breach thresholds.
+    Evaluates project risk based on historical CPI & SPI breach thresholds.
 
     High Risk flagged if CPI < 0.85 AND SPI < 0.85 across >= 2 snapshots.
 

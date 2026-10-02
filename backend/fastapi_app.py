@@ -35,6 +35,7 @@ from crud_service import (
 )
 from projects_crud import get_project_by_id
 from evm_router import router as evm_router
+from evm_service import ensure_evm_schema, calculate_portfolio_evm, calculate_and_save_evm
 from ml_rout import router as ml_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -45,6 +46,7 @@ async def lifespan(_app):
     # Additive auth migration + bootstrap admin + warm DB pool, before serving traffic.
     ensure_auth_schema()
     ensure_audit_schema()
+    ensure_evm_schema()
     ensure_bootstrap_admin()
     warm_pool()
     yield
@@ -201,7 +203,9 @@ class SprintCreate(_DateRange):
     project_id   : int             = Field(..., ge=1)
     sprint_no    : int             = Field(..., ge=1)
     sprint_name  : Optional[str]   = None
-    planned_value: Optional[float] = Field(default=0, ge=0)
+    planned_value: Optional[float] = Field(default=0, ge=0, description="Sprint budget")
+    actual_cost  : Optional[float] = Field(default=None, ge=0,
+                                           description="Money actually spent on this sprint so far (drives CPI/EAC)")
 
     @field_validator("planned_value", mode="before")
     @classmethod
@@ -318,7 +322,24 @@ def root():
 
 @app.get("/health", tags=["Health"])
 def health():
+    """Liveness: the process is up (cheap; use for frequent pings)."""
     return {"status": "ok"}
+
+@app.get("/health/ready", tags=["Health"])
+def health_ready():
+    """Readiness: the database answers. Point your hosting platform's health check here."""
+    conn = get_connection()
+    if not conn:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        return {"status": "ok", "database": "ok"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="database unavailable")
+    finally:
+        conn.close()
 
 
 @app.post("/roles", tags=["Roles"], status_code=201, dependencies=roles(ADMIN))
@@ -559,7 +580,7 @@ def api_create_sprint(body: SprintCreate, user: dict = Depends(require_roles(*ED
     require_manage(user, body.project_id)
     require_open_project(body.project_id)
     sprint_id = create_sprint(body.project_id, body.sprint_no, body.sprint_name,
-                               body.start_date, body.end_date, body.planned_value)
+                               body.start_date, body.end_date, body.planned_value, body.actual_cost)
     if sprint_id is None:
         raise HTTPException(status_code=500, detail="Failed to create sprint")
     audit(user, "sprint.create", "sprint", sprint_id, project_id=body.project_id, name=body.sprint_name)
@@ -578,6 +599,7 @@ def api_get_sprints(project_id: Optional[int] = Query(None), user: dict = Depend
             "start_date"   : _d(r[4]),
             "end_date"     : _d(r[5]),
             "planned_value": float(r[6]) if r[6] is not None else None,
+            "actual_cost"  : float(r[7]) if len(r) > 7 and r[7] is not None else None,
         }
         for r in rows
     ]
@@ -588,7 +610,7 @@ def api_update_sprint(sprint_id: int, body: SprintUpdate, user: dict = Depends(r
     require_manage(user, body.project_id)            # can't move a sprint into someone else's project
     require_open_project(body.project_id)
     update_sprint(sprint_id, body.project_id, body.sprint_no, body.sprint_name,
-                  body.start_date, body.end_date, body.planned_value)
+                  body.start_date, body.end_date, body.planned_value, body.actual_cost)
     audit(user, "sprint.update", "sprint", sprint_id, project_id=body.project_id)
     return {"message": f"Sprint {sprint_id} updated"}
 
@@ -870,6 +892,13 @@ def api_sync_jira(body: SyncJiraBody, user: dict = Depends(require_roles(*EDITOR
     return result
 
 
+@app.get("/evm/portfolio", tags=["EVM Calculator"])
+def api_evm_portfolio(user: dict = Depends(get_current_user)):
+    """Live EVM for every project the caller can see, in one request (no snapshots saved)."""
+    scope = project_ids_for(user)
+    return calculate_portfolio_evm(sorted(scope) if scope is not None else None)
+
+
 @app.get("/ledger/{project_id}", tags=["Project Ledger"])
 def get_project_ledger(project_id: int, user: dict = Depends(get_current_user)):
     """
@@ -909,6 +938,12 @@ def get_project_ledger(project_id: int, user: dict = Depends(get_current_user)):
         """, [project_id, only_user, only_user])
         rows = cur.fetchall()
 
+        # Values come from the EVM calculator so the ledger always matches the EVM dashboard.
+        # one pooled connection for all EVM inputs (much faster than 4 separate round trips)
+        evm = (calculate_portfolio_evm([project_id], keep_task_values=True) or [{}])[0]
+        values = {v["task_id"]: v for v in evm.get("task_values", [])}
+        sprint_info = {s["sprint_id"]: s for s in evm.get("sprint_breakdown", [])}
+
         ledger_items = []
         for r in rows:
             task_id = r[0]
@@ -922,19 +957,13 @@ def get_project_ledger(project_id: int, user: dict = Depends(get_current_user)):
             sprint_no = r[6]
             sprint_name = r[7] or f"Sprint {sprint_no}"
 
-            # Baseline monetary valuation ($100 / SP)
-            pv = max(50.0, float(sp * 100.0) if sp > 0 else 100.0)
-
-            st_lower = status.strip().lower()
-            if st_lower == "done":
-                ev = pv
-                ac = round(pv * 0.95, 2)
-            elif st_lower == "in progress":
-                ev = round(pv * 0.5, 2)
-                ac = round(pv * 0.65, 2)
-            else:
-                ev = 0.0
-                ac = 0.0
+            v = values.get(task_id, {})
+            pv = float(v.get("planned_value") or 0.0)
+            ev = float(v.get("earned_value") or 0.0)
+            # Actual cost exists only per sprint; attribute it to the sprint's tasks by earned value.
+            sprint = sprint_info.get(sprint_id, {})
+            s_ac, s_ev = sprint.get("actual_cost"), sprint.get("earned_value") or 0.0
+            ac = round(s_ac * ev / s_ev, 2) if s_ac is not None and s_ev else (0.0 if s_ac is not None else None)
 
             ledger_items.append({
                 "task_id": task_id,

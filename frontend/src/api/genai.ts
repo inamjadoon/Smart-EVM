@@ -25,6 +25,14 @@ export interface ChatResponse {
   elapsed_ms?: number;
 }
 
+/** Snapshot of the page the user is on, so the assistant can "read this page". */
+export interface PageContext {
+  path: string;
+  title: string;
+  text: string;
+  project_id?: number | null;
+}
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
@@ -62,9 +70,11 @@ export async function getProjectInsights(projectId: number | string): Promise<Pr
 export async function sendGenAiChat(
   message: string,
   projectId?: number | string | null,
-  history: ChatTurn[] = []
+  history: ChatTurn[] = [],
+  page?: PageContext | null
 ): Promise<ChatResponse> {
-  const payload: { message: string; project_id?: number; history: ChatTurn[] } = { message, history };
+  const payload: { message: string; project_id?: number; history: ChatTurn[]; page?: PageContext } = { message, history };
+  if (page) payload.page = page;
   if (projectId !== undefined && projectId !== null && projectId !== "") {
     payload.project_id = Number(projectId);
   }

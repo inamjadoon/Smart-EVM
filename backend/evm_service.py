@@ -1,5 +1,5 @@
 from db_connection import get_connection
-from evm_calculator import calculate_project_evm, calculate_qpi
+from evm_calculator import calculate_project_evm, calculate_qpi, CALC_VERSION
 
 from typing import Optional, List, Dict
 
@@ -49,7 +49,7 @@ def _fetch_sprints_for_project(project_id: int) -> List[Dict]:
         cursor.execute(
             """
             SELECT sprint_id, project_id, sprint_no, sprint_name,
-                   start_date, end_date, planned_value
+                   start_date, end_date, planned_value, actual_cost
             FROM   Sprints
             WHERE  project_id = %s
             ORDER BY sprint_no
@@ -66,6 +66,7 @@ def _fetch_sprints_for_project(project_id: int) -> List[Dict]:
                 "start_date"   : r[4],
                 "end_date"     : r[5],
                 "planned_value": r[6],
+                "actual_cost"  : r[7],
             }
             for r in rows
         ]
@@ -176,9 +177,9 @@ def _save_evm_snapshot(evm_result: Dict) -> bool:
             INSERT INTO EVM_History
                 (project_id, total_pv, total_ev, total_ac,
                  cpi, spi, qpi,
-                 ai_prediction_eac, ai_variance_at_completion)
+                 ai_prediction_eac, ai_variance_at_completion, calc_version)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 evm_result["project_id"],
@@ -190,6 +191,7 @@ def _save_evm_snapshot(evm_result: Dict) -> bool:
                 evm_result["qpi"],                       # can be None → stored as NULL
                 evm_result["ai_prediction_eac"],
                 evm_result["ai_variance_at_completion"],
+                CALC_VERSION,
             ]
         )
         conn.commit()
@@ -228,54 +230,20 @@ def calculate_and_save_evm(
     dict with all EVM fields + sprint_breakdown list.
     """
 
-    # 1. Validate project exists
-    project = _fetch_project(project_id)
-    if not project:
+    # 1-5. Fetch project, sprints, tasks, metrics in ONE pooled connection and calculate.
+    results = calculate_portfolio_evm([project_id], keep_task_values=True)
+    if not results:
         return {"error": f"Project {project_id} not found"}
-
-    # 2. Fetch sprints
-    sprints = _fetch_sprints_for_project(project_id)
-    if not sprints:
-        return {
-            "project_id"                : project_id,
-            "project_name"              : project.get("project_name", ""),
-            "total_budget"              : float(project.get("total_budget") or 0),
-            "total_pv"                  : 0.0,
-            "total_ev"                  : 0.0,
-            "total_ac"                  : 0.0,
-            "cpi"                       : 1.0,
-            "spi"                       : 1.0,
-            "qpi"                       : None,
-            "ai_prediction_eac"         : 0.0,
-            "ai_variance_at_completion" : 0.0,
-            "done_story_points"         : 0,
-            "budget_per_point"          : budget_per_point,
-            "sprint_count"              : 0,
-            "task_count"                : 0,
-            "health"                    : "Pending",
-            "snapshot_saved"            : False,
-            "sprint_breakdown"          : [],
-        }
-
-    # 3. Fetch tasks for all sprints
-    sprint_ids = [s["sprint_id"] for s in sprints]
-    tasks = _fetch_tasks_for_sprints(sprint_ids)
-
-    # 4. Fetch metrics for all tasks
-    task_ids = [t["task_id"] for t in tasks]
-    metrics  = _fetch_metrics_for_tasks(task_ids) if task_ids else []
-
-    # 5. Run EVM calculation
-    evm_result = calculate_project_evm(
-        project         = project,
-        sprints         = sprints,
-        tasks           = tasks,
-        metrics         = metrics,
-        budget_per_point= budget_per_point,
-    )
+    evm_result = results[0]
+    evm_result["budget_per_point"] = budget_per_point
 
     # 6. Save snapshot to DB
-    if save_snapshot and "error" not in evm_result:
+    nothing_to_record = not evm_result.get("sprint_count") or (
+        evm_result.get("total_pv") == 0 and evm_result.get("total_ev") == 0 and not evm_result.get("ac_entered"))
+    if save_snapshot and "error" not in evm_result and nothing_to_record:
+        evm_result["snapshot_saved"] = False
+        evm_result["snapshot_skipped_reason"] = "Nothing to record yet: add sprints with dates, tasks or actual cost first."
+    elif save_snapshot and "error" not in evm_result:
         saved = _save_evm_snapshot(evm_result)
         evm_result["snapshot_saved"] = saved
     else:
@@ -301,10 +269,10 @@ def get_evm_history(project_id: int) -> List[Dict]:
                    cpi, spi, qpi,
                    ai_prediction_eac, ai_variance_at_completion
             FROM   EVM_History
-            WHERE  project_id = %s
-            ORDER BY snapshot_date DESC
+            WHERE  project_id = %s AND calc_version >= %s
+            ORDER BY snapshot_date DESC, history_id DESC
             """,
-            [project_id]
+            [project_id, CALC_VERSION]
         )
         rows = cursor.fetchall()
         return [
@@ -390,3 +358,80 @@ def recalculate_task_qpi(
         conn.close()
 
     return new_qpi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Schema + portfolio (batch) calculation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def ensure_evm_schema() -> None:
+    """Additive, idempotent migration for the corrected EVM model.
+    * Sprints.actual_cost      — money actually spent on the sprint (entered by the manager).
+    * EVM_History.calc_version — 1 = legacy rows from the old, broken formula (kept, but ignored
+                                 by charts/ML/AI); new snapshots are written with CALC_VERSION."""
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE Sprints ADD COLUMN IF NOT EXISTS actual_cost NUMERIC(15, 2)")
+        cur.execute("ALTER TABLE EVM_History ADD COLUMN IF NOT EXISTS calc_version INT NOT NULL DEFAULT 1")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"[evm_service] schema migration failed: {e}")
+    finally:
+        conn.close()
+
+
+def calculate_portfolio_evm(project_ids=None, keep_task_values: bool = False) -> List[Dict]:
+    """Live EVM for many projects with 3 queries total (instead of 4 per project)."""
+    conn = get_connection()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT project_id, project_name, total_budget, start_date, end_date, manager_id
+            FROM Projects WHERE (%s::int[] IS NULL OR project_id = ANY(%s::int[]))
+        """, [project_ids, project_ids])
+        projects = {r[0]: {"project_id": r[0], "project_name": r[1], "total_budget": r[2],
+                           "start_date": r[3], "end_date": r[4], "manager_id": r[5]} for r in cur.fetchall()}
+        if not projects:
+            return []
+        ids = list(projects)
+        cur.execute("""
+            SELECT sprint_id, project_id, sprint_no, sprint_name, start_date, end_date, planned_value, actual_cost
+            FROM Sprints WHERE project_id = ANY(%s)
+        """, [ids])
+        sprints: Dict[int, List[Dict]] = {}
+        for r in cur.fetchall():
+            sprints.setdefault(r[1], []).append({
+                "sprint_id": r[0], "project_id": r[1], "sprint_no": r[2], "sprint_name": r[3],
+                "start_date": r[4], "end_date": r[5], "planned_value": r[6], "actual_cost": r[7]})
+        cur.execute("""
+            SELECT t.task_id, t.sprint_id, t.status, t.story_points, s.project_id
+            FROM Tasks t JOIN Sprints s ON s.sprint_id = t.sprint_id WHERE s.project_id = ANY(%s)
+        """, [ids])
+        tasks: Dict[int, List[Dict]] = {}
+        for r in cur.fetchall():
+            tasks.setdefault(r[4], []).append({"task_id": r[0], "sprint_id": r[1], "status": r[2],
+                                                "story_points": r[3]})
+        cur.execute("""
+            SELECT m.task_id, m.calculated_qpi FROM Metrics m
+            JOIN Tasks t ON t.task_id = m.task_id JOIN Sprints s ON s.sprint_id = t.sprint_id
+            WHERE s.project_id = ANY(%s)
+        """, [ids])
+        metrics = [{"task_id": r[0], "calculated_qpi": r[1]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+    out = []
+    for pid, project in projects.items():
+        res = calculate_project_evm(project, sprints.get(pid, []), tasks.get(pid, []), metrics)
+        res["project_name"] = project["project_name"]
+        res["sprint_count"] = len(sprints.get(pid, []))
+        res["task_count"] = len(tasks.get(pid, []))
+        if not keep_task_values:
+            res.pop("task_values", None)
+        out.append(res)
+    return out

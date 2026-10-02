@@ -208,16 +208,46 @@ def test_invalid_key_does_not_fail_over(monkeypatch):
     assert tried == ["main"]
 
 
-def test_markdown_is_stripped_to_plain_text():
-    md = "## Summary\n**Atlas** is __critical__.\n* CPI 0.80   \n- SPI 0.90\n\n\n\nDone"
-    assert ga.plain_text(md) == "Summary\nAtlas is critical.\n• CPI 0.80\n• SPI 0.90\n\nDone"
+def test_markdown_is_normalised_for_the_chat_ui():
+    md = "## Summary\n**Atlas** is <b>critical</b>.\n* CPI 0.80   \n• SPI 0.90\n\n\n\n#### Next"
+    assert ga.clean_markdown(md) == "### Summary\n**Atlas** is critical.\n- CPI 0.80\n- SPI 0.90\n\n#### Next"
 
 
 def test_offline_budget_question_ranks_by_overrun(monkeypatch):
     llm_down(monkeypatch)
     out = ga.ask("Which project is most over budget?", MANAGER)
-    first = out["reply"].splitlines()[1]
+    first = next(line for line in out["reply"].splitlines() if line.startswith("- "))
     assert "Atlas Payments" in first and "-25,000" in first
+
+
+# ── page awareness ───────────────────────────────────────
+
+PAGE = {"path": "/evm?project_id=1", "title": "EVM Dashboard", "project_id": 1,
+        "text": "EVM Dashboard\nCPI 0.80\nSPI 0.90\nEAC $125,000\nSave snapshot"}
+
+
+def test_summarize_this_page_routes_to_page_agent_offline(monkeypatch):
+    llm_down(monkeypatch)
+    out = ga.ask("Summarize this page", MANAGER, page=PAGE)
+    assert out["route"]["agents"] == ["page"] and out["route"]["project_ids"] == [1]
+    assert out["reply"].startswith("### EVM Dashboard") and "CPI 0.80" in out["reply"]
+
+
+def test_page_agent_gets_the_snapshot(monkeypatch):
+    calls = llm_up(monkeypatch, [
+        {"content": json.dumps({"agents": ["page"], "project_ids": []})},
+        {"content": "### EVM Dashboard\nThe project is over budget (**CPI 0.80**)."},
+    ])
+    out = ga.ask("what am I looking at?", MANAGER, page=PAGE)
+    system = calls[1]["messages"][0]["content"]
+    assert "PAGE SNAPSHOT" in system and "EAC $125,000" in system
+    assert out["reply"].startswith("### EVM Dashboard")
+
+
+def test_page_agent_unavailable_without_page(monkeypatch):
+    llm_down(monkeypatch)
+    out = ga.ask("Summarize this page", MANAGER)
+    assert "page" not in out["route"]["agents"]
 
 
 

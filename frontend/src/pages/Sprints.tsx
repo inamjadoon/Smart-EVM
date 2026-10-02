@@ -12,11 +12,12 @@ import { getSprints, createSprint, updateSprint, deleteSprint } from "@/api/spri
 import { toast } from "sonner";
 import { RoleGate } from "@/auth/AuthProvider";
 
-const empty = { project_id: "", sprint_number: "", sprint_name: "", start_date: "", end_date: "", planned_value: "" };
+const empty = { project_id: "", sprint_number: "", sprint_name: "", start_date: "", end_date: "", planned_value: "", actual_cost: "" };
 
 export default function Sprints() {
   const [projects, setProjects] = useState<any[]>([]);
-  const [projectId, setProjectId] = useState<string>("");
+  // Open on ?project_id=… when linked from another page (e.g. the EVM dashboard's "add actual cost" hint).
+  const [projectId, setProjectId] = useState<string>(() => new URLSearchParams(window.location.search).get("project_id") ?? "");
   const [sprints, setSprints] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>(empty);
@@ -80,7 +81,13 @@ export default function Sprints() {
                 <div><Label>Start Date</Label><Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></div>
                 <div><Label>End Date</Label><Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} /></div>
               </div>
-              <div><Label>Planned Value</Label><Input type="number" value={form.planned_value} onChange={(e) => setForm({ ...form, planned_value: e.target.value })} /></div>
+              <div><Label>Planned Value (sprint budget, $)</Label><Input type="number" min={0} value={form.planned_value} onChange={(e) => setForm({ ...form, planned_value: e.target.value })} /></div>
+              <div>
+                <Label>Actual Cost to date ($)</Label>
+                <Input type="number" min={0} placeholder="Leave empty if not known yet" value={form.actual_cost ?? ""}
+                  onChange={(e) => setForm({ ...form, actual_cost: e.target.value })} />
+                <p className="text-[11px] text-muted-foreground mt-1">Money actually spent on this sprint so far. Needed for CPI, EAC and cost forecasts.</p>
+              </div>
             </div>
             <DialogFooter><Button onClick={submit}>{editingId ? "Save" : "Create"}</Button></DialogFooter>
           </DialogContent>
@@ -126,7 +133,7 @@ export default function Sprints() {
             <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead>#</TableHead><TableHead>Name</TableHead><TableHead>Start</TableHead>
-                <TableHead>End</TableHead><TableHead>PV</TableHead><TableHead className="text-right">Actions</TableHead>
+                <TableHead>End</TableHead><TableHead>PV (budget)</TableHead><TableHead>Actual Cost</TableHead><TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -137,6 +144,7 @@ export default function Sprints() {
                   <TableCell>{s.start_date}</TableCell>
                   <TableCell>{s.end_date}</TableCell>
                   <TableCell>${Number(s.planned_value ?? 0).toLocaleString()}</TableCell>
+                  <TableCell>{s.actual_cost != null ? `$${Number(s.actual_cost).toLocaleString()}` : <span className="text-muted-foreground text-xs">not entered</span>}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <RoleGate allow={["Admin", "Manager"]} fallback={<span className="text-xs text-muted-foreground">View only</span>}>
                       <Button size="sm" variant="outline" onClick={() => onEdit(s)}>Edit</Button>
@@ -145,7 +153,7 @@ export default function Sprints() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!sprints.length && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{projectId ? "No sprints." : "Pick a project."}</TableCell></TableRow>}
+              {!sprints.length && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">{projectId ? "No sprints." : "Pick a project."}</TableCell></TableRow>}
             </TableBody>
           </Table>
           </div>

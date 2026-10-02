@@ -1,244 +1,136 @@
-
-
-import sys
+"""
+Unit tests for evm_calculator.py (no database). Run: python -m pytest test_evm_calculator.py -v
+"""
 import os
+import sys
+from datetime import date
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from evm_calculator import (
-    calculate_project_evm,
-    calculate_qpi,
-    _safe_divide,
-    _health_label,
-    STATUS_DONE,
-    STATUS_IN_PROGRESS,
-    STATUS_TODO,
+from evm_calculator import (  # noqa: E402
+    STATUS_DONE, STATUS_IN_PROGRESS, STATUS_TODO,
+    _health_label, _safe_divide, calculate_project_evm, calculate_qpi,
 )
 
+PROJECT = {"project_id": 1, "project_name": "Test Project", "total_budget": 10000.0}
 
-
-SAMPLE_PROJECT = {
-    "project_id"  : 1,
-    "project_name": "Test Project",
-    "total_budget": 10000.0,
-    "manager_id"  : 1,
-}
-
-SAMPLE_SPRINTS = [
-    {
-        "sprint_id"    : 1, "project_id": 1, "sprint_no": 1,
-        "sprint_name"  : "Sprint 1 - UI",
-        "start_date"   : "2025-01-01",      # has started
-        "end_date"     : "2025-01-14",
-        "planned_value": 2000.0,
-    },
-    {
-        "sprint_id"    : 2, "project_id": 1, "sprint_no": 2,
-        "sprint_name"  : "Sprint 2 - Backend",
-        "start_date"   : "2025-01-15",      # has started
-        "end_date"     : "2025-01-28",
-        "planned_value": 3000.0,
-    },
-    {
-        "sprint_id"    : 3, "project_id": 1, "sprint_no": 3,
-        "sprint_name"  : "Sprint 3 - Testing",
-        "start_date"   : None,              # NOT started yet
-        "end_date"     : None,
-        "planned_value": 5000.0,
-    },
+SPRINTS = [
+    {"sprint_id": 1, "sprint_no": 1, "sprint_name": "S1", "start_date": "2025-01-01", "end_date": "2025-01-14", "planned_value": 2000.0},
+    {"sprint_id": 2, "sprint_no": 2, "sprint_name": "S2", "start_date": "2025-01-15", "end_date": "2025-01-28", "planned_value": 3000.0},
+    {"sprint_id": 3, "sprint_no": 3, "sprint_name": "S3", "start_date": None, "end_date": None, "planned_value": 5000.0},
 ]
 
-SAMPLE_TASKS = [
-    # Sprint 1 tasks
-    {"task_id": 1, "sprint_id": 1, "status": STATUS_DONE,        "story_points": 5, "assigned_to": 1},
-    {"task_id": 2, "sprint_id": 1, "status": STATUS_DONE,        "story_points": 3, "assigned_to": 1},
-    {"task_id": 3, "sprint_id": 1, "status": STATUS_IN_PROGRESS, "story_points": 2, "assigned_to": 2},
-    # Sprint 2 tasks
-    {"task_id": 4, "sprint_id": 2, "status": STATUS_DONE,        "story_points": 8, "assigned_to": 2},
-    {"task_id": 5, "sprint_id": 2, "status": STATUS_TODO,        "story_points": 4, "assigned_to": 1},
-    # Sprint 3 tasks (not started)
-    {"task_id": 6, "sprint_id": 3, "status": STATUS_TODO,        "story_points": 6, "assigned_to": 1},
+TASKS = [
+    {"task_id": 1, "sprint_id": 1, "status": STATUS_DONE,        "story_points": 5},
+    {"task_id": 2, "sprint_id": 1, "status": STATUS_DONE,        "story_points": 3},
+    {"task_id": 3, "sprint_id": 1, "status": STATUS_IN_PROGRESS, "story_points": 2},
+    {"task_id": 4, "sprint_id": 2, "status": STATUS_DONE,        "story_points": 8},
+    {"task_id": 5, "sprint_id": 2, "status": STATUS_TODO,        "story_points": 4},
+    {"task_id": 6, "sprint_id": 3, "status": STATUS_TODO,        "story_points": 6},
 ]
 
-SAMPLE_METRICS = [
-    {
-        "metric_id": 1, "task_id": 1, "tester_id": 3,
-        "critical_bugs": 0, "major_bugs": 1, "minor_bugs": 2,
-        "bug_count": 3, "code_coverage": 85.0, "tech_debt_hours": 2.0,
-        "calculated_qpi": 86.0,
-    },
-    {
-        "metric_id": 2, "task_id": 2, "tester_id": 3,
-        "critical_bugs": 0, "major_bugs": 0, "minor_bugs": 1,
-        "bug_count": 1, "code_coverage": 90.0, "tech_debt_hours": 1.0,
-        "calculated_qpi": 93.0,
-    },
-    {
-        "metric_id": 3, "task_id": 4, "tester_id": 3,
-        "critical_bugs": 1, "major_bugs": 2, "minor_bugs": 0,
-        "bug_count": 3, "code_coverage": 70.0, "tech_debt_hours": 5.0,
-        "calculated_qpi": 68.0,
-    },
-]
+METRICS = [{"task_id": 1, "calculated_qpi": 86.0}, {"task_id": 2, "calculated_qpi": 93.0},
+           {"task_id": 4, "calculated_qpi": 68.0}]
+
+TODAY = date(2025, 1, 21)          # sprint 1 finished, sprint 2 is 6 of 13 days in
 
 
-
-PASSED = 0
-FAILED = 0
-
-def check(test_name: str, condition: bool, detail: str = ""):
-    global PASSED, FAILED
-    if condition:
-        print(f"  PASS  {test_name}")
-        PASSED += 1
-    else:
-        print(f"  FAIL  {test_name}{' — ' + detail if detail else ''}")
-        FAILED += 1
+def _with_costs(s1, s2):
+    out = [dict(s) for s in SPRINTS]
+    out[0]["actual_cost"], out[1]["actual_cost"] = s1, s2
+    return out
 
 
+def test_ev_is_in_budget_dollars():
+    r = calculate_project_evm(PROJECT, SPRINTS, TASKS, METRICS, today=TODAY)
+    # S1 budget 2000 over 10 pts: 1000 + 600 done + 400 x 50% in progress = 1800
+    # S2 budget 3000 over 12 pts: 8 pts done = 2000 ; S3: nothing done
+    assert r["total_ev"] == 3800.0
+    s1 = next(s for s in r["sprint_breakdown"] if s["sprint_no"] == 1)
+    assert s1["earned_value"] == 1800.0 and s1["done_points"] == 8
 
 
-def test_safe_divide():
-    print("\n[safe_divide]")
-    check("normal division",          _safe_divide(10, 2)    == 5.0)
-    check("divide by zero returns 0", _safe_divide(10, 0)    == 0.0)
-    check("divide by None returns 0", _safe_divide(10, None) == 0.0)
-    check("custom default",           _safe_divide(10, 0, default=-1) == -1)
-    check("rounds to 2 decimals",     _safe_divide(1, 3)     == 0.33)
+def test_pv_is_time_phased_to_today():
+    r = calculate_project_evm(PROJECT, SPRINTS, TASKS, METRICS, today=TODAY)
+    # S1 fully elapsed (2000) + S2 6/13 elapsed (1384.62) ; S3 has no dates -> not scheduled yet
+    assert r["total_pv"] == pytest.approx(3384.62, abs=0.01)
+    assert r["spi"] == 1.12 and r["schedule_known"] is True
 
 
-
-def test_qpi():
-    print("\n[calculate_qpi]")
-
-    # Perfect: no bugs, 100% coverage, no debt
-    qpi = calculate_qpi(0, 0, 0, 100.0, 0.0)
-    check("perfect QPI = 100", qpi == 100.0, f"got {qpi}")
-
-    # 1 critical bug (-10), 100% coverage (+20) = 110 → clamped to 100
-    qpi = calculate_qpi(1, 0, 0, 100.0, 0.0)
-    check("1 critical, full coverage = 100 (clamped up)", qpi == 100.0, f"got {qpi}")
-
-    # 2 critical bugs = -20, 0 coverage = 0 bonus → 80
-    qpi = calculate_qpi(2, 0, 0, 0.0, 0.0)
-    check("2 critical, 0 coverage = 80", qpi == 80.0, f"got {qpi}")
-
-    # Clamp at 0: many critical bugs
-    qpi = calculate_qpi(15, 0, 0, 0.0, 0.0)
-    check("many bugs → clamped at 0", qpi == 0.0, f"got {qpi}")
-
-    # Tech debt: 10 hours → -2 points
-    qpi = calculate_qpi(0, 0, 0, 0.0, 10.0)
-    check("10 tech debt hours = 98", qpi == 98.0, f"got {qpi}")
-
-    # Mixed
-    qpi = calculate_qpi(
-        critical_bugs=0, major_bugs=1, minor_bugs=2,
-        code_coverage=85.0, tech_debt_hours=2.0
-    )
-    # base=100, -5(major), -4(minor), +17(85% of 20), -0.4(2/5)
-    # = 100 - 5 - 4 + 17 - 0.4 = 107.6 → clamped to 100? No, 107.6 → 100
-    check("mixed QPI clamped at 100", qpi == 100.0, f"got {qpi}")
+def test_no_actual_cost_means_no_cost_indices():
+    r = calculate_project_evm(PROJECT, SPRINTS, TASKS, METRICS, today=TODAY)
+    assert r["total_ac"] is None and r["ac_entered"] is False
+    assert r["cpi"] is None and r["ai_prediction_eac"] is None and r["ai_variance_at_completion"] is None
+    assert r["health"].startswith("Green")      # judged on SPI alone
 
 
-
-def test_health_label():
-    print("\n[_health_label]")
-    check("green: cpi=1, spi=1",    _health_label(1.0, 1.0).startswith("Green"))
-    check("green: cpi=1.2, spi=1.1",_health_label(1.2, 1.1).startswith("Green"))
-    check("yellow: cpi=0.9, spi=0.9",_health_label(0.9, 0.9).startswith("Yellow"))
-    check("red: cpi=0.5, spi=0.5",  _health_label(0.5, 0.5).startswith("Red"))
-    check("red: cpi=0.7, spi=1.0",  _health_label(0.7, 1.0).startswith("Red"))
-
+def test_cost_indices_from_entered_actual_cost():
+    r = calculate_project_evm(PROJECT, _with_costs(2000.0, 1500.0), TASKS, METRICS, today=TODAY)
+    assert r["total_ac"] == 3500.0
+    assert r["cpi"] == 1.09                          # 3800 / 3500
+    assert r["ai_prediction_eac"] == pytest.approx(10000 / 1.09, abs=0.01)
+    assert r["ai_variance_at_completion"] == pytest.approx(10000 - 10000 / 1.09, abs=0.01)
+    assert r["etc"] == pytest.approx(10000 / 1.09 - 3500, abs=0.01)
 
 
-
-def test_evm_calculation():
-    print("\n[calculate_project_evm]")
-
-    result = calculate_project_evm(
-        project          = SAMPLE_PROJECT,
-        sprints          = SAMPLE_SPRINTS,
-        tasks            = SAMPLE_TASKS,
-        metrics          = SAMPLE_METRICS,
-        budget_per_point = 100.0,
-    )
-
-    # PV = sum of ALL sprint planned_values = 2000 + 3000 + 5000 = 10000
-    check("total_pv = 10000", result["total_pv"] == 10000.0, f"got {result['total_pv']}")
-
-    # Done tasks: task1(5pts) + task2(3pts) + task4(8pts) = 16 points
-    # EV = 16 × 100 = 1600
-    check("done_story_points = 16", result["done_story_points"] == 16, f"got {result['done_story_points']}")
-    check("total_ev = 1600",        result["total_ev"] == 1600.0,      f"got {result['total_ev']}")
-
-    # AC = sprints with start_date: sprint1(2000) + sprint2(3000) = 5000
-    check("total_ac = 5000", result["total_ac"] == 5000.0, f"got {result['total_ac']}")
-
-    # CPI = EV / AC = 1600 / 5000 = 0.32
-    check("cpi = 0.32", result["cpi"] == 0.32, f"got {result['cpi']}")
-
-    # SPI = EV / PV = 1600 / 10000 = 0.16
-    check("spi = 0.16", result["spi"] == 0.16, f"got {result['spi']}")
-
-    # EAC = budget / cpi = 10000 / 0.32 = 31250
-    check("ai_prediction_eac = 31250", result["ai_prediction_eac"] == 31250.0, f"got {result['ai_prediction_eac']}")
-
-    # VAC = budget - EAC = 10000 - 31250 = -21250  (way over budget)
-    check("ai_variance_at_completion = -21250", result["ai_variance_at_completion"] == -21250.0, f"got {result['ai_variance_at_completion']}")
-
-    # QPI = avg of (86, 93, 68) = 247 / 3 = 82.33
-    expected_qpi = round((86.0 + 93.0 + 68.0) / 3, 2)
-    check(f"qpi = {expected_qpi}", result["qpi"] == expected_qpi, f"got {result['qpi']}")
-
-    # Health: cpi=0.32 and spi=0.16 → both < 0.8 → Red
-    check("health = Red", result["health"].startswith("Red"), f"got {result['health']}")
-
-    # Sprint breakdown count
-    check("sprint_breakdown has 3 items", len(result["sprint_breakdown"]) == 3,
-          f"got {len(result['sprint_breakdown'])}")
-
-    # Sprint 1 EV: task1(5) + task2(3) done = 8pts × 100 = 800
-    s1 = next(s for s in result["sprint_breakdown"] if s["sprint_no"] == 1)
-    check("sprint 1 earned_value = 800",  s1["earned_value"] == 800.0,  f"got {s1['earned_value']}")
-    check("sprint 1 done_points  = 8",    s1["done_points"]  == 8,      f"got {s1['done_points']}")
-
-    # Sprint 3: not started, no done tasks → ev = 0
-    s3 = next(s for s in result["sprint_breakdown"] if s["sprint_no"] == 3)
-    check("sprint 3 earned_value = 0", s3["earned_value"] == 0.0, f"got {s3['earned_value']}")
+def test_partial_cost_entry_compares_like_with_like():
+    """Only sprint 1 has a cost: CPI = sprint 1 EV / sprint 1 AC, not total EV / partial AC."""
+    sprints = [dict(s) for s in SPRINTS]
+    sprints[0]["actual_cost"] = 2400.0               # sprint 1 earned 1800 but cost 2400
+    r = calculate_project_evm(PROJECT, sprints, TASKS, METRICS, today=TODAY)
+    assert r["total_ac"] == 2400.0 and r["ac_sprints_entered"] == 1
+    assert r["cpi"] == 0.75                          # 1800 / 2400 — an overrun, not 3800 / 2400 = 1.58
 
 
-def test_empty_project():
-    print("\n[empty/edge cases]")
-
-    # No sprints
-    result = calculate_project_evm(SAMPLE_PROJECT, [], [], [], 100.0)
-    check("no sprints → returns error-like result", "reason" in result)
-
-    # Sprints but no tasks
-    result = calculate_project_evm(SAMPLE_PROJECT, SAMPLE_SPRINTS, [], [], 100.0)
-    check("no tasks → ev = 0",   result["total_ev"] == 0.0)
-    check("no tasks → qpi = None", result["qpi"] is None)
-
-    # budget_per_point = 0 should not crash
-    result = calculate_project_evm(SAMPLE_PROJECT, SAMPLE_SPRINTS, SAMPLE_TASKS, [], 0.0)
-    check("budget_per_point=0 → ev = 0", result["total_ev"] == 0.0)
+def test_overrun_is_detected():
+    r = calculate_project_evm(PROJECT, _with_costs(4000.0, 4000.0), TASKS, METRICS, today=TODAY)
+    assert r["cpi"] == 0.47 and r["ai_variance_at_completion"] < 0 and r["health"].startswith("Red")
 
 
-if __name__ == "__main__":
-    print("=" * 55)
-    print("  Smart EVM Calculator — Unit Tests")
-    print("  (No database connection required)")
-    print("=" * 55)
+def test_on_plan_project_is_not_reported_as_overrun():
+    """Regression: the old formula gave CPI 0.16 for an on-plan sprint (EV in $100/point vs AC = sprint budget)."""
+    project = {"project_id": 9, "total_budget": 10000.0, "start_date": "2026-09-01", "end_date": "2026-12-31"}
+    sprints = [{"sprint_id": 1, "sprint_no": 1, "start_date": "2026-09-01", "end_date": "2026-09-30",
+                "planned_value": 5000.0, "actual_cost": 3000.0}]
+    tasks = [{"task_id": 1, "sprint_id": 1, "status": STATUS_DONE, "story_points": 8},
+             {"task_id": 2, "sprint_id": 1, "status": STATUS_TODO, "story_points": 5}]
+    r = calculate_project_evm(project, sprints, tasks, [], today=date(2026, 10, 2))
+    assert r["total_ev"] == pytest.approx(5000 * 8 / 13, abs=0.01)
+    assert r["cpi"] == 1.03                          # 3076.92 / 3000 — not 0.16
 
-    test_safe_divide()
-    test_qpi()
-    test_health_label()
-    test_evm_calculation()
-    test_empty_project()
 
-    print("\n" + "=" * 55)
-    print(f"  Results: {PASSED} passed, {FAILED} failed")
-    print("=" * 55)
+def test_budget_fallbacks():
+    sprints = [{"sprint_id": 1, "sprint_no": 1, "start_date": None, "end_date": None, "planned_value": 0}]
+    tasks = [{"task_id": 1, "sprint_id": 1, "status": STATUS_DONE, "story_points": 4}]
+    r = calculate_project_evm({"project_id": 1, "total_budget": 0}, sprints, tasks, [], budget_per_point=250, today=TODAY)
+    assert r["total_budget"] == 1000.0 and r["total_ev"] == 1000.0      # 4 pts x 250
+    assert r["spi"] is None and r["schedule_known"] is False
 
-    if FAILED > 0:
-        sys.exit(1)
+
+def test_unbudgeted_sprint_gets_share_of_remaining_budget():
+    sprints = [dict(SPRINTS[0]), {**SPRINTS[1], "planned_value": 0}]
+    r = calculate_project_evm(PROJECT, sprints, TASKS[:5], [], today=TODAY)
+    s2 = next(s for s in r["sprint_breakdown"] if s["sprint_no"] == 2)
+    assert s2["planned_value"] == 8000.0             # 10000 BAC - 2000 already allocated
+
+
+def test_qpi_average_and_empty_cases():
+    r = calculate_project_evm(PROJECT, SPRINTS, TASKS, METRICS, today=TODAY)
+    assert r["qpi"] == round((86 + 93 + 68) / 3, 2)
+    empty = calculate_project_evm(PROJECT, [], [], [])
+    assert empty["reason"] and empty["cpi"] is None and empty["health"].startswith("Gray")
+    no_tasks = calculate_project_evm(PROJECT, SPRINTS, [], [], today=TODAY)
+    assert no_tasks["total_ev"] == 0.0 and no_tasks["qpi"] is None
+
+
+def test_helpers():
+    assert _safe_divide(10, 4) == 2.5 and _safe_divide(1, 0) == 0.0 and _safe_divide(1, None, 1.0) == 1.0
+    assert calculate_qpi(0, 0, 0, 100, 0) == 100.0
+    assert calculate_qpi(2, 1, 3, 50, 10) == 77.0       # 100 - 20 - 5 - 6 + 10 - 2
+    assert calculate_qpi(20, 0, 0, 0, 0) == 0.0
+    assert _health_label(1.1, 1.0).startswith("Green")
+    assert _health_label(0.9, 1.2).startswith("Yellow")
+    assert _health_label(0.7, None).startswith("Red")
+    assert _health_label(None, None).startswith("Gray")

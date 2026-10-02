@@ -20,8 +20,24 @@ import {
   ChevronDown,
   WifiOff
 } from "lucide-react";
-import { getGenAiHealth, sendGenAiChat, type AgentRun, type ChatTurn, type GenAiHealthResponse } from "@/api/genai";
+import { getGenAiHealth, sendGenAiChat, type AgentRun, type ChatTurn, type GenAiHealthResponse, type PageContext } from "@/api/genai";
 import { useAuth } from "@/auth/AuthProvider";
+import { Markdown } from "@/components/Markdown";
+
+/** Read what the user currently sees: the page title from the header and the visible text of <main>. */
+function capturePage(): PageContext | null {
+  const main = document.querySelector("main");
+  if (!main) return null;
+  const text = (main as HTMLElement).innerText.replace(/\n{3,}/g, "\n\n").trim().slice(0, 12000);
+  const title = document.querySelector("header h1")?.textContent?.trim() || document.title;
+  const pid = new URLSearchParams(window.location.search).get("project_id");
+  return {
+    path: window.location.pathname + window.location.search,
+    title,
+    text,
+    project_id: pid && /^\d+$/.test(pid) ? Number(pid) : null,
+  };
+}
 import { getProjects } from "@/api/projects";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -37,6 +53,8 @@ interface Message {
 }
 
 // Suggested questions per role (each one exercises a different specialist agent).
+const PAGE_PROMPT = "Summarize this page";
+
 const PROMPTS_BY_ROLE: Record<string, string[]> = {
   Admin: ["Give me an executive portfolio summary", "Who on the team is overloaded?", "Which tasks are overdue?"],
   Manager: ["Which projects are at risk and why?", "Who on the team is overloaded?", "Which tasks are overdue?"],
@@ -60,7 +78,7 @@ export function AIAssistantWidget() {
     {
       id: "welcome-1",
       sender: "assistant",
-      text: "Hello! I am SmartEVM's AI Assistant. Ask me anything about project performance, CPI/SPI trends, cost forecasts (EAC), or schedule risks.",
+      text: "### Hi, I'm the SmartEVM AI Assistant\nAsk me about project performance, CPI/SPI, cost forecasts (EAC), tasks, or your team.\n\nI can also **read the page you're on** — try *Summarize this page*.",
       source: "llm",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
@@ -126,7 +144,7 @@ export function AIAssistantWidget() {
         .filter((m) => !m.id.startsWith("welcome") && m.source !== "system")
         .slice(-HISTORY_TURNS)
         .map((m) => ({ role: m.sender, content: m.text }));
-      const res = await sendGenAiChat(textToSend, projId, history);
+      const res = await sendGenAiChat(textToSend, projId, history, capturePage());
       if (res.llm) {
         setHealth((h) => ({ ...(h ?? { status: "ok", llm_configured: true }), available: res.llm!.available,
                             reason: res.llm!.reason, model: res.llm!.model }));
@@ -178,7 +196,7 @@ export function AIAssistantWidget() {
       {isOpen && (
         <Card
           className={cn(
-            "w-[92vw] sm:w-[420px] bg-card border-2 border-primary/25 shadow-2xl rounded-2xl flex flex-col transition-all duration-200 overflow-hidden mb-3",
+            "w-[92vw] sm:w-[460px] bg-card border-2 border-primary/25 shadow-2xl rounded-2xl flex flex-col transition-all duration-200 overflow-hidden mb-3",
             isMinimized ? "h-14" : "h-[560px] max-h-[85vh]"
           )}
         >
@@ -295,7 +313,11 @@ export function AIAssistantWidget() {
                           : "bg-muted/80 text-foreground border border-border/60 rounded-tl-none"
                       )}
                     >
-                      <div className="whitespace-pre-line break-words">{msg.text}</div>
+                      {msg.sender === "assistant" ? (
+                        <Markdown text={msg.text} />
+                      ) : (
+                        <div className="whitespace-pre-line break-words">{msg.text}</div>
+                      )}
                       {msg.agents && msg.agents.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {msg.agents.map((a) => (
@@ -357,7 +379,7 @@ export function AIAssistantWidget() {
                     Suggested Questions:
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {(PROMPTS_BY_ROLE[role] ?? PROMPTS_BY_ROLE.Viewer).map((prompt, i) => (
+                    {[PAGE_PROMPT, ...(PROMPTS_BY_ROLE[role] ?? PROMPTS_BY_ROLE.Viewer)].map((prompt, i) => (
                       <button
                         key={i}
                         onClick={() => handleSend(prompt)}
