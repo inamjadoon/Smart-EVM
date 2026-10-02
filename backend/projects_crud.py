@@ -24,12 +24,9 @@ def _validate_dates(start_date, end_date):
     """
     Validate a parsed (start_date, end_date) pair.
     Raises ValueError with a user-facing message if invalid.
+    Past dates are allowed on purpose: historical and Jira-imported projects
+    legitimately ended before today.
     """
-    today = date.today()
-
-    if end_date is not None and end_date < today:
-        raise ValueError("End date cannot be in the past")
-
     if start_date is not None and end_date is not None and end_date < start_date:
         raise ValueError("End date cannot be before start date")
 

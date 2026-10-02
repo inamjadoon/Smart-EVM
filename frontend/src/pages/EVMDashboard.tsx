@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from "recharts";
 import { RefreshCw, TrendingUp, Target, Award, Activity } from "lucide-react";
 import { getProjects } from "@/api/projects";
-import { calculateEvm, getEvmHistory } from "@/api/evm";
+import { calculateEvm, getEvmHistory, getEvmSummary } from "@/api/evm";
+import { RoleGate } from "@/auth/AuthProvider";
 import { InsightsAgentCard } from "@/components/InsightsAgentCard";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -63,7 +64,8 @@ export default function EVMDashboard() {
 
   const loadAll = async (id: string) => {
     try {
-      const [e, h] = await Promise.all([calculateEvm(id), getEvmHistory(id)]);
+      // read-only on page load (GET); saving a snapshot is an explicit Manager/Admin action
+      const [e, h] = await Promise.all([getEvmSummary(id), getEvmHistory(id)]);
       setEvm(e); setHistory(h);
     } catch (err: any) { toast.error(err.message); }
   };
@@ -93,9 +95,12 @@ export default function EVMDashboard() {
             <SelectTrigger className="w-[260px] h-10 bg-card"><SelectValue placeholder="Choose project" /></SelectTrigger>
             <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
           </Select>
-          <Button onClick={recalc} disabled={!projectId || loading} className="bg-gradient-primary hover:opacity-90 shadow-soft">
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} /> Calculate
-          </Button>
+          <RoleGate allow={["Admin", "Manager"]}>
+            <Button onClick={recalc} disabled={!projectId || loading} className="bg-gradient-primary hover:opacity-90 shadow-soft"
+              title="Recalculate EVM and save a snapshot to the history">
+              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} /> Save snapshot
+            </Button>
+          </RoleGate>
         </div>
       </div>
 

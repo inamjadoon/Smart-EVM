@@ -48,6 +48,13 @@ export const updateProject = (id, payload) =>
 export const deleteProject = (id) =>
   api.delete(`/projects/${id}`).then((r) => r.data);
 
+/** Mark completed (project becomes read-only) / reopen. Manager of the project or Admin. */
+export const completeProject = (id) =>
+  api.post(`/projects/${id}/complete`).then((r) => fromApi(r.data));
+
+export const reopenProject = (id) =>
+  api.post(`/projects/${id}/reopen`).then((r) => fromApi(r.data));
+
 /**
  * JIRA sync. Backend accepts an optional body { jira_project_key }.
  * Defaults to "JRASERVER" so the existing UI button works without changes.

@@ -7,14 +7,37 @@ export interface ProjectInsightResponse {
   source: "llm" | "rule_based" | string;
 }
 
+export interface AgentRun {
+  name: string;
+  label: string;
+  source: "llm" | "rule_based" | string;
+  tools: string[];
+  ms: number;
+  error?: string;
+}
+
 export interface ChatResponse {
   reply: string;
   source: "llm" | "rule_based" | string;
+  agents?: AgentRun[];
+  route?: { agents: string[]; project_ids: number[]; by: string; reason?: string };
+  llm?: { available: boolean; model?: string; reason?: string; warning?: string };
+  elapsed_ms?: number;
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export interface GenAiHealthResponse {
   status: string;
   llm_configured: boolean;
+  llm_available?: boolean;
+  available?: boolean;
+  model?: string;
+  reason?: string;
+  latency_ms?: number;
 }
 
 /**
@@ -36,11 +59,15 @@ export async function getProjectInsights(projectId: number | string): Promise<Pr
 /**
  * Send interactive query to GenAI LLM Assistant
  */
-export async function sendGenAiChat(message: string, projectId?: number | string | null): Promise<ChatResponse> {
-  const payload: { message: string; project_id?: number } = { message };
+export async function sendGenAiChat(
+  message: string,
+  projectId?: number | string | null,
+  history: ChatTurn[] = []
+): Promise<ChatResponse> {
+  const payload: { message: string; project_id?: number; history: ChatTurn[] } = { message, history };
   if (projectId !== undefined && projectId !== null && projectId !== "") {
     payload.project_id = Number(projectId);
   }
-  const res = await api.post("/genai/chat", payload);
+  const res = await api.post("/genai/chat", payload, { timeout: 90000 });
   return res.data;
 }

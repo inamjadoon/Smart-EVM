@@ -24,8 +24,8 @@ import sys
 import json
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 # Make the repo-root `ai` package importable — ONLY for the LLM client wrapper.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +36,9 @@ from ai.genai import llm_client                       # noqa: E402  (LLM API wra
 # The backend's OWN ML + DB layer.
 from ml_rout import compute_evm_forecast
 from db_connection import get_connection
+from auth import get_current_user
+from access import require_read
+import genai_agents
 
 router = APIRouter(prefix="/genai", tags=["GenAI Insights & Chat"])
 
@@ -116,9 +119,11 @@ def _rule_based_insight(f: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-@router.get("/health", summary="GenAI availability")
+@router.get("/health", summary="GenAI availability (really pings the LLM, cached 60s)")
 def genai_health():
-    return {"status": "ok", "llm_configured": llm_client.is_configured()}
+    h = llm_client.health()
+    return {"status": "ok", "llm_configured": llm_client.is_configured(),
+            "llm_available": h.get("available", False), **h}
 
 
 @router.get("/insights/{project_id}", summary="Plain-language insights over the backend's ML")
@@ -144,54 +149,37 @@ def project_insights(project_id: int):
         return _rule_based_insight(f)
 
 
+class ChatTurn(BaseModel):
+    role   : str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=4000)
+
+
 class ChatIn(BaseModel):
-    message: str
-    project_id: Optional[int] = None   # omit for a portfolio-wide question
+    message   : str = Field(..., min_length=1, max_length=2000)
+    project_id: Optional[int] = None          # omit for a portfolio-wide question
+    history   : List[ChatTurn] = Field(default_factory=list, max_length=20)  # earlier turns, oldest first
+    agents    : Optional[List[str]] = None    # force specific specialists (testing / UI shortcuts)
 
 
-@router.post("/chat", summary="Chat about one project, or the whole portfolio")
-def genai_chat(body: ChatIn):
+@router.post("/chat", summary="Multi-agent assistant: routes the question to specialist agents")
+def genai_chat(body: ChatIn, user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Router -> specialist agents (Portfolio/EVM, Delivery/Tasks, Team, EVM Tutor) with live
+    DB tools -> synthesizer. Falls back to rule-based answers from the same data when the
+    LLM is unavailable. Response keeps `reply` + `source` for existing clients and adds
+    `agents`, `route`, `llm` and `elapsed_ms`.
+    """
     if body.project_id is not None:
-        facts: Any = _facts(body.project_id)
-    else:
-        # Detect if a specific project ID is mentioned in the query (e.g., "project 1")
-        import re
-        m = re.search(r"project\s*#?(\d+)", body.message, re.IGNORECASE)
-        if m:
-            try:
-                facts = _facts(int(m.group(1)))
-            except Exception:
-                pids = _all_project_ids()[:6]
-                facts = []
-                for pid in pids:
-                    try:
-                        facts.append(_facts(pid))
-                    except Exception:
-                        pass
-        else:
-            pids = _all_project_ids()[:6]
-            facts = []
-            for pid in pids:
-                try:
-                    facts.append(_facts(pid))
-                except Exception:
-                    pass
-    try:
-        raw = llm_client.chat(
-            [{"role": "system", "content": CHAT_SYSTEM},
-             {"role": "user",
-              "content": f"FACTS:\n{json.dumps(facts, indent=2)}\n\nQUESTION: {body.message}"}],
-            temperature=0.2, max_tokens=700,
-        )
-        return {"reply": raw.strip(), "source": "llm"}
-    except Exception as e:
-        import traceback
-        print(f"[GenAI Chat] LLM failed: {e}")
-        traceback.print_exc()
-        items = facts if isinstance(facts, list) else [facts]
-        lines = [
-            f"{x.get('project_name')}: CPI {x.get('current_cpi')}, SPI {x.get('current_spi')}, "
-            f"EAC ${(x.get('predicted_eac') or 0):,.0f}, ~{(x.get('predicted_delay_days') or 0):.0f}d delay"
-            for x in items
-        ]
-        return {"reply": "(offline summary)\n" + "\n".join(lines), "source": "rule_based"}
+        require_read(user, body.project_id)
+    return genai_agents.ask(
+        body.message, user,
+        project_id=body.project_id,
+        history=[t.model_dump() for t in body.history],
+        force_agents=body.agents,
+    )
+
+
+@router.get("/agents", summary="Specialist agents available to the current user")
+def genai_agents_list(user: Dict[str, Any] = Depends(get_current_user)):
+    return [{"name": n, "label": a["label"], "handles": a["about"]}
+            for n, a in genai_agents.AGENTS.items() if user["role"] in a["roles"]]

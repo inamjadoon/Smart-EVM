@@ -7,6 +7,9 @@ from pathlib import Path
 
 try:
     from dotenv import load_dotenv
+    # backend/.env is the single source of truth when present; ai/.env only fills gaps
+    # (load_dotenv never overrides a value that is already set).
+    load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
     load_dotenv(Path(__file__).resolve().parent / ".env")
 except Exception:  # dotenv is optional
     pass
@@ -27,3 +30,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30"))
+# Model used only to route questions to agents (a small/fast one with its own rate limit).
+LLM_ROUTER_MODEL = os.getenv("LLM_ROUTER_MODEL", "") or LLM_MODEL
+# Comma-separated models to fail over to when the main one is rate-limited/unavailable.
+# Groq rate limits are per model, so this multiplies free-tier capacity.
+LLM_FALLBACK_MODELS = [m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "").split(",") if m.strip()]

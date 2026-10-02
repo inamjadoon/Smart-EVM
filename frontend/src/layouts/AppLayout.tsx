@@ -1,7 +1,10 @@
 import { Outlet, useLocation, useNavigate, Link } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, Search, LogOut, ShieldCheck, Home } from "lucide-react";
+import { Search, LogOut, ShieldCheck, Home } from "lucide-react";
+import { useState } from "react";
+import { canAccess } from "@/auth/permissions";
+import { NotificationsBell } from "@/components/NotificationsBell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +22,8 @@ const titles: Record<string, { title: string; subtitle: string }> = {
   "/evm":          { title: "EVM Dashboard",       subtitle: "Earned Value Management insights" },
   "/intelligence": { title: "Intelligence",        subtitle: "Predictive analytics & forecasting" },
   "/ml":           { title: "ML Predictions",      subtitle: "Run individual predictive models" },
+  "/team":         { title: "Team",                subtitle: "Members, roles and delivery progress" },
+  "/account":      { title: "Account",             subtitle: "Profile, password and sessions" },
 };
 
 export default function AppLayout() {
@@ -29,11 +34,15 @@ export default function AppLayout() {
     titles[Object.keys(titles).find((k) => k !== "/" && pathname.startsWith(k)) ?? "/dashboard"] ||
     titles["/dashboard"];
 
-  const { isAuthenticated, user, role, logout } = useAuth();
+  const { user, role, logout } = useAuth();
+  const [search, setSearch] = useState("");
+  const title =
+    pathname === "/tasks" && role === "Developer" ? "My Tasks" :
+    pathname === "/team" && role === "Admin" ? "Users & Access" : meta.title;
 
-  const handleLogout = () => {
-    logout();
-    navigate("/");
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
   };
 
   const initials = (user?.name || user?.email || "U")
@@ -47,14 +56,24 @@ export default function AppLayout() {
           <header className="h-16 flex items-center gap-3 border-b bg-card/80 backdrop-blur-md px-4 sticky top-0 z-30">
             <SidebarTrigger className="h-9 w-9 rounded-md hover:bg-muted transition-colors" />
             <div className="hidden md:flex flex-col leading-tight">
-              <h1 className="text-sm font-semibold text-foreground">{meta.title}</h1>
-              <span className="text-xs text-muted-foreground">{meta.subtitle}</span>
+              <h1 className="text-sm font-semibold text-foreground whitespace-nowrap">{title}</h1>
+              <span className="text-xs text-muted-foreground hidden xl:block">{meta.subtitle}</span>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <div className="relative hidden lg:block">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search projects, sprints, tasks…" className="pl-8 w-72 h-9 bg-background text-xs" />
-              </div>
+              {canAccess(role, "/projects") && (
+                <form
+                  className="relative hidden lg:block"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const q = search.trim();
+                    navigate(q ? `/projects?q=${encodeURIComponent(q)}` : "/projects");
+                  }}
+                >
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search projects… (Enter)" value={search} onChange={(e) => setSearch(e.target.value)}
+                    aria-label="Search projects" className="pl-8 w-64 h-9 bg-background text-xs" />
+                </form>
+              )}
 
               {/* User Role Indicator (Fixed, non-switchable) */}
               <div
@@ -66,8 +85,9 @@ export default function AppLayout() {
               </div>
 
               {isMockMode && (
-                <Badge variant="outline" className="h-7 hidden xl:inline-flex border-warning/40 bg-warning/10 text-warning text-xs">
-                  Connected API
+                <Badge variant="outline" className="h-7 hidden xl:inline-flex border-warning/40 bg-warning/10 text-warning text-xs"
+                  title="VITE_API_BASE_URL is not set, so pages show sample data">
+                  Demo data
                 </Badge>
               )}
 
@@ -83,9 +103,7 @@ export default function AppLayout() {
                 </Link>
               </Button>
 
-              <button className="h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center transition-colors">
-                <Bell className="h-4 w-4 text-muted-foreground" />
-              </button>
+              <NotificationsBell />
 
               {/* Sign Out Button */}
               <Button
@@ -99,13 +117,14 @@ export default function AppLayout() {
                 <span className="hidden sm:inline">Sign out</span>
               </Button>
 
-              {/* User Avatar */}
-              <div
-                className="h-9 w-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold shadow-soft"
-                title={`${user?.name || "User"} (${role})`}
+              {/* User Avatar -> account page */}
+              <Link
+                to="/account"
+                className="h-9 w-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold shadow-soft hover:opacity-90 transition-opacity"
+                title={`${user?.name || "User"} (${role}) — account settings`}
               >
                 {initials}
-              </div>
+              </Link>
             </div>
           </header>
           <main className="flex-1 p-6 md:p-8 animate-fade-in max-w-[1600px] w-full mx-auto">

@@ -10,6 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } fro
 import { getProjects } from "@/api/projects";
 import { getSprints, createSprint, updateSprint, deleteSprint } from "@/api/sprints";
 import { toast } from "sonner";
+import { RoleGate } from "@/auth/AuthProvider";
 
 const empty = { project_id: "", sprint_number: "", sprint_name: "", start_date: "", end_date: "", planned_value: "" };
 
@@ -67,6 +68,7 @@ export default function Sprints() {
           <h2 className="text-3xl font-bold tracking-tight">Sprints</h2>
           <p className="text-muted-foreground mt-1">Manage sprints per project.</p>
         </div>
+        <RoleGate allow={["Admin", "Manager"]}>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setEditingId(null); setForm(empty); } }}>
           <DialogTrigger asChild><Button disabled={!projectId} className="bg-gradient-primary hover:opacity-90 shadow-soft">New Sprint</Button></DialogTrigger>
           <DialogContent>
@@ -83,6 +85,7 @@ export default function Sprints() {
             <DialogFooter><Button onClick={submit}>{editingId ? "Save" : "Create"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        </RoleGate>
       </div>
 
       <Card className="card-elevated border-0">
@@ -135,8 +138,10 @@ export default function Sprints() {
                   <TableCell>{s.end_date}</TableCell>
                   <TableCell>${Number(s.planned_value ?? 0).toLocaleString()}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    <Button size="sm" variant="outline" onClick={() => onEdit(s)}>Edit</Button>
-                    <Button size="sm" variant="destructive" onClick={() => onDelete(s.id)}>Delete</Button>
+                    <RoleGate allow={["Admin", "Manager"]} fallback={<span className="text-xs text-muted-foreground">View only</span>}>
+                      <Button size="sm" variant="outline" onClick={() => onEdit(s)}>Edit</Button>
+                      <Button size="sm" variant="destructive" onClick={() => onDelete(s.id)}>Delete</Button>
+                    </RoleGate>
                   </TableCell>
                 </TableRow>
               ))}

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,10 +15,18 @@ import EVMDashboard from "./pages/EVMDashboard";
 import MLPredictions from "./pages/MLPredictions";
 import Intelligence from "./pages/Intelligence";
 import ProjectLedger from "./pages/ProjectLedger";
+import Team from "./pages/Team";
+import Account from "./pages/Account";
 import { AuthProvider } from "./auth/AuthProvider";
+import { GuestOnly, RequireAuth, RequireRole } from "./auth/ProtectedRoute";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
+
+// Every workspace page: must be signed in AND have a role allowed for that path.
+const guarded = (path: string, element: JSX.Element) => (
+  <Route path={path} element={<RequireRole path={path}>{element}</RequireRole>} />
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -30,19 +38,21 @@ const App = () => (
           <Routes>
             {/* Public Landing & Authentication Routes */}
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
+            <Route path="/register" element={<GuestOnly><Register /></GuestOnly>} />
 
             {/* Authenticated Workspace Layout */}
-            <Route element={<AppLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/sprints" element={<Sprints />} />
-              <Route path="/tasks" element={<Tasks />} />
-              <Route path="/ledger" element={<ProjectLedger />} />
-              <Route path="/evm" element={<EVMDashboard />} />
-              <Route path="/intelligence" element={<Intelligence />} />
-              <Route path="/ml" element={<MLPredictions />} />
+            <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+              {guarded("/dashboard", <Dashboard />)}
+              {guarded("/projects", <Projects />)}
+              {guarded("/sprints", <Sprints />)}
+              {guarded("/tasks", <Tasks />)}
+              {guarded("/ledger", <ProjectLedger />)}
+              {guarded("/evm", <EVMDashboard />)}
+              {guarded("/intelligence", <Intelligence />)}
+              {guarded("/ml", <MLPredictions />)}
+              {guarded("/team", <Team />)}
+              {guarded("/account", <Account />)}
             </Route>
 
             {/* Fallback */}

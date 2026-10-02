@@ -8,7 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getProjects, getUsers } from "@/api/projects";
 import { getSprints } from "@/api/sprints";
-import { getTasks, createTask, updateTask, deleteTask, recalculateQpi } from "@/api/tasks";
+import { getTasks, createTask, updateTask, deleteTask, recalculateQpi, updateTaskStatus } from "@/api/tasks";
+import { useAuth } from "@/auth/AuthProvider";
+import MyTasks from "./MyTasks";
 import { getMetrics, createMetric, deleteMetric } from "@/api/metrics";
 import { toast } from "sonner";
 
@@ -16,7 +18,14 @@ const STATUSES = ["To Do", "In Progress", "Done"];
 const empty = { sprint_id: "", assigned_user: "", description: "", status: "To Do", story_points: "" };
 const emptyMetric = { critical_bugs: "0", major_bugs: "0", minor_bugs: "0", bug_count: "0", code_coverage: "85", tech_debt_hours: "2", calculated_qpi: "100" };
 
+// Developers only ever see (and update the status of) their own tasks.
 export default function Tasks() {
+  const { role } = useAuth();
+  return role === "Developer" ? <MyTasks /> : <ManageTasks />;
+}
+
+function ManageTasks() {
+  const { role } = useAuth();
   const [projects, setProjects] = useState<any[]>([]);
   const [projectId, setProjectId] = useState("");
   const [sprints, setSprints] = useState<any[]>([]);
@@ -58,6 +67,7 @@ export default function Tasks() {
   }, [projectId]);
 
   const load = () => sprintId && getTasks(sprintId).then(setTasks).catch((e) => toast.error(e.message));
+  const locked = !!projects.find((p) => String(p.id) === projectId)?.is_completed;
   useEffect(() => { setTasks([]); load(); }, [sprintId]);
 
   const submit = async () => {
@@ -84,7 +94,7 @@ export default function Tasks() {
     try { await deleteTask(id); toast.success("Deleted"); load(); } catch (e: any) { toast.error(e.message); }
   };
   const onStatusChange = async (t: any, status: string) => {
-    try { await updateTask(t.id, { ...t, status }); load(); } catch (e: any) { toast.error(e.message); }
+    try { await updateTaskStatus(t.id, status); load(); } catch (e: any) { toast.error(e.message); }
   };
   const onQpi = async (id: string) => {
     try { await recalculateQpi(id); toast.success("QPI recalculated"); load(); } catch (e: any) { toast.error(e.message); }
@@ -114,15 +124,18 @@ export default function Tasks() {
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Tasks</h2>
-          <p className="text-muted-foreground mt-1">Manage tasks per sprint.</p>
+          <p className="text-muted-foreground mt-1">Plan, assign and track tasks in the projects you manage.</p>
         </div>
         <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setEditingId(null); setForm(empty); } }}>
-          <DialogTrigger asChild><Button disabled={!sprintId} className="bg-gradient-primary hover:opacity-90 shadow-soft">New Task</Button></DialogTrigger>
+          <DialogTrigger asChild><Button disabled={!sprintId || locked} className="bg-gradient-primary hover:opacity-90 shadow-soft">New Task</Button></DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>{editingId ? "Edit Task" : "New Task"}</DialogTitle></DialogHeader>
             <div className="grid gap-3">
               <div>
                 <Label>Assigned User</Label>
+                <p className="text-[11px] text-muted-foreground mb-1">
+                  {role === "Manager" ? "You can assign yourself or developers on your team." : "Any active user."}
+                </p>
                 <Select
                   value={form.assigned_user ? String(form.assigned_user) : "unassigned"}
                   onValueChange={(v) => setForm({ ...form, assigned_user: v === "unassigned" ? "" : v })}
@@ -130,9 +143,12 @@ export default function Tasks() {
                   <SelectTrigger className="w-full bg-card"><SelectValue placeholder="Select user (optional)" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {form.assigned_user && !users.some((u) => String(u.user_id) === String(form.assigned_user)) && (
+                      <SelectItem value={String(form.assigned_user)}>{form.assignee_name ?? `User #${form.assigned_user}`}</SelectItem>
+                    )}
                     {users.map((u) => (
                       <SelectItem key={u.user_id} value={String(u.user_id)}>
-                        {u.username}
+                        {u.full_name ?? u.username}{u.role ? ` (${u.role})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -152,12 +168,18 @@ export default function Tasks() {
         </Dialog>
       </div>
 
+      {locked && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
+          This project is completed, so its tasks are read-only. Reopen it from the Projects page to make changes.
+        </div>
+      )}
+
       <Card className="card-elevated border-0">
         <CardHeader><CardTitle className="text-base">Filters</CardTitle></CardHeader>
         <CardContent className="flex gap-3 flex-wrap">
           <Select value={projectId} onValueChange={setProjectId}>
             <SelectTrigger className="w-[280px] h-10 bg-card"><SelectValue placeholder="Project" /></SelectTrigger>
-            <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}</SelectContent>
+            <SelectContent>{projects.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}{p.is_completed ? " (completed)" : ""}</SelectItem>)}</SelectContent>
           </Select>
           <Select value={sprintId} onValueChange={setSprintId} disabled={!sprints.length}>
             <SelectTrigger className="w-[280px] h-10 bg-card"><SelectValue placeholder="Sprint" /></SelectTrigger>
@@ -182,21 +204,21 @@ export default function Tasks() {
                 <TableRow key={t.id}>
                   <TableCell>{t.description}</TableCell>
                   <TableCell>
-                    {users.find((u) => String(u.user_id) === String(t.assigned_user))?.username ??
+                    {t.assignee_name ??
                       (t.assigned_user ? `User #${t.assigned_user}` : "—")}
                   </TableCell>
                   <TableCell>
-                    <Select value={t.status} onValueChange={(v) => onStatusChange(t, v)}>
+                    <Select value={t.status} disabled={locked} onValueChange={(v) => onStatusChange(t, v)}>
                       <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                       <SelectContent>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                     </Select>
                   </TableCell>
                   <TableCell>{t.story_points}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    <Button size="sm" variant="outline" onClick={() => onQpi(t.id)}>Recalc QPI</Button>
-                    <Button size="sm" variant="outline" onClick={() => onEdit(t)}>Edit</Button>
+                    <Button size="sm" variant="outline" disabled={locked} onClick={() => onQpi(t.id)}>Recalc QPI</Button>
+                    <Button size="sm" variant="outline" disabled={locked} onClick={() => onEdit(t)}>Edit</Button>
                     <Button size="sm" variant="secondary" onClick={() => loadMetrics(t.id)}>Metrics</Button>
-                    <Button size="sm" variant="destructive" onClick={() => onDelete(t.id)}>Delete</Button>
+                    <Button size="sm" variant="destructive" disabled={locked} onClick={() => onDelete(t.id)}>Delete</Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -212,7 +234,7 @@ export default function Tasks() {
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>Quality Metrics — Task #{selectedTaskId}</CardTitle>
             <Dialog open={metricOpen} onOpenChange={(o) => { setMetricOpen(o); if (!o) setMetricForm(emptyMetric); }}>
-              <DialogTrigger asChild><Button size="sm" className="bg-primary hover:bg-primary/90">Add Metric</Button></DialogTrigger>
+              <DialogTrigger asChild><Button size="sm" disabled={locked} className="bg-primary hover:bg-primary/90">Add Metric</Button></DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Add Quality Metric</DialogTitle></DialogHeader>
                 <div className="grid gap-3">
@@ -245,7 +267,7 @@ export default function Tasks() {
                     <TableCell>{m.tech_debt_hours}h</TableCell>
                     <TableCell className="font-mono font-semibold">{Number(m.calculated_qpi).toFixed(1)}</TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="destructive" onClick={() => deleteMetricRow(String(m.id ?? m.metric_id))}>Delete</Button>
+                      <Button size="sm" variant="destructive" disabled={locked} onClick={() => deleteMetricRow(String(m.id ?? m.metric_id))}>Delete</Button>
                     </TableCell>
                   </TableRow>
                 ))}

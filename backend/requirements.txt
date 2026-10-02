@@ -13,6 +13,10 @@ starlette>=0.36.0
 psycopg2-binary>=2.9.9
 SQLAlchemy>=2.0.25
 
+# Authentication (signed login tokens)
+PyJWT>=2.8.0
+bcrypt>=4.0.0   # verifies legacy bcrypt hashes, upgraded on login
+
 # Configuration & HTTP Integrations (Jira sync, Groq/LLM client)
 python-dotenv>=1.0.0
 requests>=2.31.0
@@ -27,3 +31,4 @@ matplotlib>=3.7.0
 
 # Unit Testing
 pytest>=7.4.0
+httpx2  # required by fastapi.testclient

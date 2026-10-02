@@ -62,6 +62,14 @@ export const updateTask = (id, payload) =>
 export const deleteTask = (id) =>
   api.delete(`/tasks/${id}`).then((r) => r.data);
 
+/** Status-only change. The only task write a Developer is allowed (own tasks). */
+export const updateTaskStatus = (id, status) =>
+  api.patch(`/tasks/${id}/status`, { status }).then((r) => r.data);
+
+/** The signed-in user's own tasks across all projects (with project, sprint, due date, overdue flag). */
+export const getMyTasks = () =>
+  api.get("/tasks/mine").then((r) => (r.data || []).map(fromApi));
+
 /**
  * Backend QPI endpoint REQUIRES a body with bug counts / coverage.
  * The original UI button passed nothing — we send safe defaults so the call

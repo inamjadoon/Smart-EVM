@@ -1,23 +1,27 @@
-import { LayoutDashboard, FolderKanban, CalendarRange, ListChecks, LineChart, Brain, BookOpen, Sparkles, Shield, Home, LogOut } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CalendarRange, ListChecks, LineChart, Brain, BookOpen, Sparkles, Shield, Home, LogOut, Users, UserCircle, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation, Link, useNavigate } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter, useSidebar,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
-import { useAuth, type Role } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthProvider";
+import { canAccess } from "@/auth/permissions";
 
-type Item = { title: string; url: string; icon: any; allow: Role[] };
+type Item = { title: string; url: string; icon: LucideIcon };
 
+// Visibility per role comes from auth/permissions.ts (same rules as the route guards).
 const items: Item[] = [
-  { title: "Dashboard",       url: "/dashboard",    icon: LayoutDashboard, allow: ["Admin","Manager","Developer","Viewer"] },
-  { title: "Projects",        url: "/projects",     icon: FolderKanban,    allow: ["Admin","Manager","Viewer"] },
-  { title: "Sprints",         url: "/sprints",      icon: CalendarRange,   allow: ["Admin","Manager","Developer","Viewer"] },
-  { title: "Tasks",           url: "/tasks",        icon: ListChecks,      allow: ["Admin","Manager","Developer"] },
-  { title: "Project Ledger",  url: "/ledger",       icon: BookOpen,        allow: ["Admin","Manager","Developer","Viewer"] },
-  { title: "EVM Dashboard",   url: "/evm",          icon: LineChart,       allow: ["Admin","Manager","Developer","Viewer"] },
-  { title: "Intelligence",    url: "/intelligence", icon: Brain,           allow: ["Admin"] },
-  { title: "ML Predictions",  url: "/ml",           icon: Sparkles,        allow: ["Admin","Manager"] },
+  { title: "Dashboard",       url: "/dashboard",    icon: LayoutDashboard },
+  { title: "Projects",        url: "/projects",     icon: FolderKanban },
+  { title: "Sprints",         url: "/sprints",      icon: CalendarRange },
+  { title: "Tasks",           url: "/tasks",        icon: ListChecks },
+  { title: "Project Ledger",  url: "/ledger",       icon: BookOpen },
+  { title: "EVM Dashboard",   url: "/evm",          icon: LineChart },
+  { title: "Intelligence",    url: "/intelligence", icon: Brain },
+  { title: "ML Predictions",  url: "/ml",           icon: Sparkles },
+  { title: "Team",            url: "/team",         icon: Users },
+  { title: "Account",         url: "/account",      icon: UserCircle },
 ];
 
 export function AppSidebar() {
@@ -29,9 +33,9 @@ export function AppSidebar() {
 
   const isActive = (path: string) => (path === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(path));
 
-  const handleLogout = () => {
-    logout();
-    navigate("/");
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -61,11 +65,14 @@ export function AppSidebar() {
           )}
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.filter((i) => i.allow.includes(role)).map((item) => {
+              {items.filter((i) => canAccess(role, i.url)).map((item) => {
                 const active = isActive(item.url);
+                const title =
+                  item.url === "/team" && role === "Admin" ? "Users & Access" :
+                  item.url === "/tasks" && role === "Developer" ? "My Tasks" : item.title;
                 return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton asChild isActive={active} tooltip={title}>
                       <NavLink
                         to={item.url}
                         className={cn(
@@ -75,7 +82,7 @@ export function AppSidebar() {
                         )}
                       >
                         <item.icon className={cn("h-4 w-4 shrink-0", active && "text-primary-foreground")} />
-                        {!collapsed && <span className="text-sm font-medium">{item.title}</span>}
+                        {!collapsed && <span className="text-sm font-medium">{title}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

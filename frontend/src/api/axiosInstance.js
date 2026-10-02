@@ -2,23 +2,25 @@
  * SmartEVM axios client.
  *
  * - When VITE_API_BASE_URL is set → real axios call against the FastAPI
- *   backend (PostgreSQL), with an Auth0 JWT attached as Bearer token.
+ *   backend (PostgreSQL), with the signed-in user's JWT attached as Bearer token.
  * - Otherwise → falls back to the mock layer below so the Lovable preview
  *   keeps rendering with realistic data.
  *
  * Env vars (frontend .env):
  *   VITE_API_BASE_URL=http://localhost:8000
- *   VITE_AUTH0_DOMAIN=...
- *   VITE_AUTH0_CLIENT_ID=...
- *   VITE_AUTH0_AUDIENCE=https://api.smartevm.io   (optional)
  */
 import axios from "axios";
+import { tokenStore } from "./auth";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // ---- Auth bridge -----------------------------------------------------------
-let _tokenGetter = async () => null;
-export const setAccessTokenGetter = (fn) => { _tokenGetter = fn || (async () => null); };
+let _tokenGetter = async () => tokenStore.get();
+export const setAccessTokenGetter = (fn) => { _tokenGetter = fn || (async () => tokenStore.get()); };
+
+// Fired when the backend rejects our token (expired / revoked / deactivated);
+// AuthProvider listens and sends the user back to the login page.
+export const UNAUTHORIZED_EVENT = "smartevm:unauthorized";
 
 // ---- Real axios instance ---------------------------------------------------
 const real = axios.create({
@@ -38,8 +40,13 @@ real.interceptors.request.use(async (config) => {
 real.interceptors.response.use(
   (r) => r,
   (err) => {
+    if (err?.response?.status === 401) {
+      window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    }
+    const detail = err?.response?.data?.detail;
     const msg =
-      err?.response?.data?.detail ||
+      (typeof detail === "string" && detail) ||
+      (Array.isArray(detail) && String(detail[0]?.msg ?? "").replace(/^Value error, /, "")) ||
       err?.response?.data?.message ||
       err?.message ||
       "Network error";
@@ -660,6 +667,8 @@ const mockClient = {
   },
   post:   (url, body) => handle("POST", url, body),
   put:    (url, body) => handle("PUT", url, body),
+  // mock mode: a status PATCH behaves like a partial task PUT
+  patch:  (url, body) => handle("PUT", url.replace(/\/status$/, ""), body),
   delete: (url)       => handle("DELETE", url),
 };
 

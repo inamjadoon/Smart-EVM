@@ -17,9 +17,11 @@ import {
   TrendingUp,
   AlertTriangle,
   Layers,
-  ChevronDown
+  ChevronDown,
+  WifiOff
 } from "lucide-react";
-import { sendGenAiChat } from "@/api/genai";
+import { getGenAiHealth, sendGenAiChat, type AgentRun, type ChatTurn, type GenAiHealthResponse } from "@/api/genai";
+import { useAuth } from "@/auth/AuthProvider";
 import { getProjects } from "@/api/projects";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -29,18 +31,25 @@ interface Message {
   sender: "user" | "assistant";
   text: string;
   source?: string;
+  agents?: AgentRun[];
+  elapsedMs?: number;
   timestamp: string;
 }
 
-const DEFAULT_PROMPTS = [
-  "How is project 1 performing overall?",
-  "Explain what current CPI & SPI mean in plain terms",
-  "What is the predicted delay and EAC for project 1?",
-  "Which risks should the team tackle next sprint?",
-  "Give me an executive portfolio summary",
-];
+// Suggested questions per role (each one exercises a different specialist agent).
+const PROMPTS_BY_ROLE: Record<string, string[]> = {
+  Admin: ["Give me an executive portfolio summary", "Who on the team is overloaded?", "Which tasks are overdue?"],
+  Manager: ["Which projects are at risk and why?", "Who on the team is overloaded?", "Which tasks are overdue?"],
+  Developer: ["Show my open tasks", "Which tasks are overdue in my projects?", "Explain CPI and SPI simply"],
+  Viewer: ["Give me an executive portfolio summary", "Which project is most over budget?", "Explain CPI and SPI simply"],
+};
+
+// Turns that carry real conversation (welcome/system notes are excluded from AI memory).
+const HISTORY_TURNS = 8;
 
 export function AIAssistantWidget() {
+  const { role } = useAuth();
+  const [health, setHealth] = useState<GenAiHealthResponse | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
@@ -59,13 +68,24 @@ export function AIAssistantWidget() {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Refresh on every open so newly created / newly assigned projects appear in the selector.
+  const [projectsLoading, setProjectsLoading] = useState(false);
   useEffect(() => {
+    if (!isOpen) return;
+    setProjectsLoading(true);
     getProjects()
+      .finally(() => setProjectsLoading(false))
       .then((p) => {
         setProjects(p);
+        setSelectedProjectId((cur) => (cur === "all" || p.some((x: { id: number }) => String(x.id) === cur) ? cur : "all"));
       })
       .catch(() => {});
-  }, []);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    getGenAiHealth().then(setHealth).catch(() => setHealth(null));
+  }, [isOpen]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -102,13 +122,23 @@ export function AIAssistantWidget() {
 
     try {
       const projId = selectedProjectId === "all" ? null : Number(selectedProjectId);
-      const res = await sendGenAiChat(textToSend, projId);
-      
+      const history: ChatTurn[] = messages
+        .filter((m) => !m.id.startsWith("welcome") && m.source !== "system")
+        .slice(-HISTORY_TURNS)
+        .map((m) => ({ role: m.sender, content: m.text }));
+      const res = await sendGenAiChat(textToSend, projId, history);
+      if (res.llm) {
+        setHealth((h) => ({ ...(h ?? { status: "ok", llm_configured: true }), available: res.llm!.available,
+                            reason: res.llm!.reason, model: res.llm!.model }));
+      }
+
       const aiMsg: Message = {
         id: `ai-${Date.now()}`,
         sender: "assistant",
         text: res.reply || "No response received.",
         source: res.source,
+        agents: res.agents,
+        elapsedMs: res.elapsed_ms,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, aiMsg]);
@@ -204,10 +234,13 @@ export function AIAssistantWidget() {
                     <SelectValue placeholder="Scope" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">🌐 Whole Portfolio (All Projects)</SelectItem>
+                    <SelectItem value="all">
+                      🌐 {role === "Admin" || role === "Viewer" ? "Whole Portfolio (All Projects)"
+                        : projectsLoading && !projects.length ? "Loading projects…" : `All my projects (${projects.length})`}
+                    </SelectItem>
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>
-                        📁 #{p.id} {p.name}
+                        📁 #{p.id} {p.name}{p.is_completed ? " ✓" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -222,6 +255,16 @@ export function AIAssistantWidget() {
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
+
+              {health && health.available === false && (
+                <div className="px-3.5 py-2 border-b bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] flex items-start gap-2">
+                  <WifiOff className="h-3.5 w-3.5 shrink-0 mt-px" />
+                  <span>
+                    AI model offline — answers come from the built-in analyst using live project data.
+                    {health.reason ? <span className="block opacity-80 mt-0.5">{health.reason}</span> : null}
+                  </span>
+                </div>
+              )}
 
               {/* Chat Message Scroll Area */}
               <CardContent className="flex-1 overflow-y-auto p-3.5 space-y-3 text-xs">
@@ -253,6 +296,24 @@ export function AIAssistantWidget() {
                       )}
                     >
                       <div className="whitespace-pre-line break-words">{msg.text}</div>
+                      {msg.agents && msg.agents.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {msg.agents.map((a) => (
+                            <span
+                              key={a.name}
+                              title={`${a.tools.length ? `Tools: ${a.tools.join(", ")}` : "No tools needed"} · ${(a.ms / 1000).toFixed(1)}s${a.error ? ` · fell back: ${a.error}` : ""}`}
+                              className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded-full border font-medium",
+                                a.source === "llm"
+                                  ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
+                                  : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                              )}
+                            >
+                              {a.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div
                         className={cn(
                           "mt-1 text-[10px] flex items-center justify-end gap-1.5 opacity-70",
@@ -261,7 +322,8 @@ export function AIAssistantWidget() {
                       >
                         {msg.source && (
                           <span className="font-mono uppercase text-[9px]">
-                            {msg.source === "llm" ? "⚡ SmartEVM AI" : msg.source}
+                            {msg.source === "llm" ? "⚡ SmartEVM AI" : msg.source === "rule_based" ? "Built-in analyst" : msg.source}
+                            {msg.elapsedMs ? ` · ${(msg.elapsedMs / 1000).toFixed(1)}s` : ""}
                           </span>
                         )}
                         <span>{msg.timestamp}</span>
@@ -280,7 +342,7 @@ export function AIAssistantWidget() {
                       <span className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
                       <span className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
                       <span className="h-2 w-2 rounded-full bg-primary animate-bounce" />
-                      <span className="text-[11px] text-muted-foreground ml-2 font-medium">AI is thinking...</span>
+                      <span className="text-[11px] text-muted-foreground ml-2 font-medium">Agents are working…</span>
                     </div>
                   </div>
                 )}
@@ -295,7 +357,7 @@ export function AIAssistantWidget() {
                     Suggested Questions:
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {DEFAULT_PROMPTS.slice(0, 3).map((prompt, i) => (
+                    {(PROMPTS_BY_ROLE[role] ?? PROMPTS_BY_ROLE.Viewer).map((prompt, i) => (
                       <button
                         key={i}
                         onClick={() => handleSend(prompt)}

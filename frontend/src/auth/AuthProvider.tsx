@@ -1,27 +1,34 @@
-import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Auth0Provider, useAuth0 } from "@auth0/auth0-react";
-import { setAccessTokenGetter } from "@/api/axiosInstance";
+import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { authApi, tokenStore, type ApiUser, type Role, type TokenResponse } from "@/api/auth";
+import { UNAUTHORIZED_EVENT } from "@/api/axiosInstance";
 
-export type Role = "Admin" | "Manager" | "Developer" | "Viewer";
+export type { Role };
 
 export type AuthUser = {
-  name?: string;
-  email?: string;
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+  organization?: string | null;
+  createdAt?: string | null;
+  lastLoginAt?: string | null;
+  managerName?: string | null;
   picture?: string;
-  role?: Role;
-  organization?: string;
 };
+
+type RegisterData = { full_name: string; email: string; password: string; organization?: string };
 
 type AuthShape = {
   isAuthenticated: boolean;
   isLoading: boolean;
   user: AuthUser | null;
   role: Role;
-  setRole: (r: Role) => void;
-  login: () => void;
-  loginWithRole: (role: Role, user?: AuthUser) => void;
-  logout: () => void;
-  authMode: "auth0" | "mock";
+  login: (email: string, password: string, remember?: boolean) => Promise<AuthUser>;
+  register: (data: RegisterData) => Promise<AuthUser>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  /** Store a fresh token (e.g. after a password change) without signing out. */
+  acceptToken: (res: TokenResponse) => void;
 };
 
 const AuthCtx = createContext<AuthShape | null>(null);
@@ -31,157 +38,99 @@ export const useAuth = () => {
   return v;
 };
 
-const DOMAIN     = import.meta.env.VITE_AUTH0_DOMAIN as string | undefined;
-const CLIENT_ID  = import.meta.env.VITE_AUTH0_CLIENT_ID as string | undefined;
-const AUDIENCE   = import.meta.env.VITE_AUTH0_AUDIENCE as string | undefined;
-const ROLES_CLAIM = (import.meta.env.VITE_AUTH0_ROLES_CLAIM as string) || "https://smartevm/roles";
+const toAuthUser = (u: ApiUser): AuthUser => ({
+  id: u.user_id,
+  name: u.full_name || u.email,
+  email: u.email,
+  role: u.role,
+  organization: u.organization,
+  createdAt: u.created_at,
+  lastLoginAt: u.last_login_at,
+  managerName: u.manager_name,
+});
 
-const Auth0Bridge = ({ children }: { children: ReactNode }) => {
-  const { isAuthenticated, isLoading, user, loginWithRedirect, logout, getAccessTokenSilently, getIdTokenClaims } = useAuth0();
-  const [role, setRole] = useState<Role>("Viewer");
-
-  useEffect(() => {
-    setAccessTokenGetter(async () => {
-      try {
-        if (!isAuthenticated) return null;
-        return await getAccessTokenSilently({ authorizationParams: AUDIENCE ? { audience: AUDIENCE } : undefined });
-      } catch { return null; }
-    });
-  }, [isAuthenticated, getAccessTokenSilently]);
-
-  useEffect(() => {
-    (async () => {
-      if (!isAuthenticated) return;
-      try {
-        const claims: any = await getIdTokenClaims();
-        const roles: string[] = (claims && claims[ROLES_CLAIM]) || (user && (user as any)[ROLES_CLAIM]) || [];
-        const r = roles.find((x) => ["Admin", "Manager", "Developer", "Viewer"].includes(x)) as Role | undefined;
-        setRole(r ?? "Viewer");
-      } catch { setRole("Viewer"); }
-    })();
-  }, [isAuthenticated, user, getIdTokenClaims]);
-
-  const value: AuthShape = {
-    isAuthenticated,
-    isLoading,
-    user: user ? { name: user.name, email: user.email, picture: user.picture } : null,
-    role,
-    setRole,
-    login: () => loginWithRedirect(),
-    loginWithRole: (newRole: Role) => setRole(newRole),
-    logout: () => logout({ logoutParams: { returnTo: window.location.origin } }),
-    authMode: "auth0",
-  };
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
-};
-
-const DEFAULT_USERS_BY_ROLE: Record<Role, AuthUser> = {
-  Admin: { name: "Sarah Connor (Admin)", email: "admin@smartevm.io", role: "Admin", organization: "SmartEVM Enterprise" },
-  Manager: { name: "Marcus Vance (PM)", email: "manager@smartevm.io", role: "Manager", organization: "DevOps & Core Delivery" },
-  Developer: { name: "Alex Mercer (Dev)", email: "alex.dev@smartevm.io", role: "Developer", organization: "Backend & ML Engineering" },
-  Viewer: { name: "David Stakeholder", email: "viewer@smartevm.io", role: "Viewer", organization: "Executive Board" },
-};
-
-const MockBridge = ({ children }: { children: ReactNode }) => {
-  const [role, setRoleState] = useState<Role>(() => {
-    return (localStorage.getItem("smartevm.role") as Role) || "Admin";
-  });
-
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const stored = localStorage.getItem("smartevm.auth");
-    return stored === "true";
-  });
-
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const stored = localStorage.getItem("smartevm.user");
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    const initialRole = (localStorage.getItem("smartevm.role") as Role) || "Admin";
-    return DEFAULT_USERS_BY_ROLE[initialRole] || DEFAULT_USERS_BY_ROLE.Admin;
-  });
-
-  useEffect(() => {
-    localStorage.setItem("smartevm.role", role);
-  }, [role]);
-
-  useEffect(() => {
-    localStorage.setItem("smartevm.auth", isAuthenticated ? "true" : "false");
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem("smartevm.user", JSON.stringify(user));
-    } else {
-      localStorage.removeItem("smartevm.user");
-    }
-  }, [user]);
-
-  useEffect(() => {
-    setAccessTokenGetter(async () => null);
-  }, []);
-
-  const setRole = (newRole: Role) => {
-    setRoleState(newRole);
-    setUser((prev) => ({
-      ...(prev || DEFAULT_USERS_BY_ROLE[newRole]),
-      role: newRole,
-    }));
-  };
-
-  const loginWithRole = (newRole: Role, customUser?: AuthUser) => {
-    const selectedUser = customUser || DEFAULT_USERS_BY_ROLE[newRole];
-    setRoleState(newRole);
-    setUser({ ...selectedUser, role: newRole });
-    setIsAuthenticated(true);
-  };
-
-  const login = () => {
-    loginWithRole(role);
-  };
-
-  const logout = () => {
-    setIsAuthenticated(false);
-    localStorage.setItem("smartevm.auth", "false");
-  };
-
-  const value: AuthShape = useMemo(() => ({
-    isAuthenticated,
-    isLoading: false,
-    user,
-    role,
-    setRole,
-    login,
-    loginWithRole,
-    logout,
-    authMode: "mock",
-  }), [isAuthenticated, user, role]);
-
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
-};
+// Keys written by the old client-side "mock login"; removed so they can't grant anything.
+const LEGACY_KEYS = ["smartevm.auth", "smartevm.role", "smartevm.user"];
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  if (DOMAIN && CLIENT_ID) {
-    return (
-      <Auth0Provider
-        domain={DOMAIN}
-        clientId={CLIENT_ID}
-        authorizationParams={{
-          redirect_uri: window.location.origin,
-          ...(AUDIENCE ? { audience: AUDIENCE } : {}),
-        }}
-        cacheLocation="localstorage"
-      >
-        <Auth0Bridge>{children}</Auth0Bridge>
-      </Auth0Provider>
-    );
-  }
-  return <MockBridge>{children}</MockBridge>;
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !!tokenStore.get());
+
+  const clearSession = useCallback(() => {
+    tokenStore.clear();
+    setUser(null);
+  }, []);
+
+  // Restore the session on page load by validating the stored token with the backend.
+  useEffect(() => {
+    LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+    if (!tokenStore.get()) return;
+    authApi
+      .me()
+      .then((u) => setUser(toAuthUser(u)))
+      .catch(() => clearSession())
+      .finally(() => setIsLoading(false));
+  }, [clearSession]);
+
+  // Any data call answered with 401 means the session is gone (expired / revoked).
+  useEffect(() => {
+    window.addEventListener(UNAUTHORIZED_EVENT, clearSession);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, clearSession);
+  }, [clearSession]);
+
+  const storeSession = useCallback((res: TokenResponse, remember: boolean) => {
+    tokenStore.set(res.access_token, remember);
+    const u = toAuthUser(res.user);
+    setUser(u);
+    return u;
+  }, []);
+
+  const login = useCallback(
+    async (email: string, password: string, remember = true) =>
+      storeSession(await authApi.login(email, password), remember),
+    [storeSession]
+  );
+
+  const register = useCallback(
+    async (data: RegisterData) => storeSession(await authApi.register(data), true),
+    [storeSession]
+  );
+
+  const logout = useCallback(async () => {
+    await authApi.logout();
+    clearSession();
+  }, [clearSession]);
+
+  const refreshUser = useCallback(async () => {
+    setUser(toAuthUser(await authApi.me()));
+  }, []);
+
+  const acceptToken = useCallback(
+    (res: TokenResponse) => { storeSession(res, !!localStorage.getItem("smartevm.token")); },
+    [storeSession]
+  );
+
+  const value: AuthShape = useMemo(
+    () => ({
+      isAuthenticated: !!user,
+      isLoading,
+      user,
+      role: user?.role ?? "Viewer",
+      login,
+      register,
+      logout,
+      refreshUser,
+      acceptToken,
+    }),
+    [user, isLoading, login, register, logout, refreshUser, acceptToken]
+  );
+
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 };
 
 export const RoleGate = ({ allow, children, fallback = null }: {
   allow: Role[]; children: ReactNode; fallback?: ReactNode;
 }) => {
-  const { role } = useAuth();
-  return allow.includes(role) ? <>{children}</> : <>{fallback}</>;
+  const { role, isAuthenticated } = useAuth();
+  return isAuthenticated && allow.includes(role) ? <>{children}</> : <>{fallback}</>;
 };
