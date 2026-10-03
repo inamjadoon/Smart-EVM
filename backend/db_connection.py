@@ -11,6 +11,9 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/smartevm")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Pin the driver we install (psycopg2-binary): SQLAlchemy 2.1+ defaults plain postgresql:// to psycopg v3.
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # Connection pool. Opening a TLS connection to Neon costs ~1.5-4s and every
 # endpoint opens several connections, so NullPool (a fresh connection per query)
